@@ -1,0 +1,14 @@
+# Node modules (server and client)
+node_modules/
+client/node_modules/
+
+# Build output (React)
+client/build/
+client/dist/
+
+# Environment variables
+.env
+client/.env
+
+# VSCode settings (optional)
+.vscode/
