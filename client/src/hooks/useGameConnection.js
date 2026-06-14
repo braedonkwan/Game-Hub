@@ -6,13 +6,21 @@ import {
   isPlayerListPayload,
   isScoreboardPayload,
   isSelectionPayload,
+  isSessionPayload,
   isTriviaQuestionPayload,
   isTriviaSetupPayload,
+  isUsernameErrorPayload,
   parseStateMessage,
 } from '../utils/gameState';
+import {
+  clearStoredSession,
+  loadStoredSession,
+  saveStoredSession,
+} from '../utils/session';
 
 const CONNECT_TIMEOUT_MS = 20000;
 const MAX_RECONNECT_DELAY = 30000;
+const INITIAL_RECONNECT_DELAY = 1000;
 
 const parseMessage = (data) => {
   if (typeof data !== 'string') return null;
@@ -36,16 +44,26 @@ const deriveStateFromPayload = (payload) => {
 };
 
 const useGameConnection = (url) => {
+  const initialSessionRef = useRef(undefined);
+  if (initialSessionRef.current === undefined) {
+    initialSessionRef.current = loadStoredSession();
+  }
   const [gameState, setGameState] = useState(GAME_STATES.SET_USERNAME);
   const [gameData, setGameData] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState(
+    url ? 'connecting' : 'offline'
+  );
+  const [reconnectDelayMs, setReconnectDelayMs] = useState(0);
+  const [connectVersion, setConnectVersion] = useState(0);
   const [players, setPlayers] = useState([]);
   const socketRef = useRef(null);
   const connectTimeoutRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
-  const reconnectDelayRef = useRef(1000);
+  const reconnectDelayRef = useRef(INITIAL_RECONNECT_DELAY);
   const shouldReconnectRef = useRef(true);
-  const lastUsernameRef = useRef('');
+  const lastUsernameRef = useRef(initialSessionRef.current?.username || '');
+  const resumeTokenRef = useRef(initialSessionRef.current?.resumeToken || '');
   const socketIdRef = useRef(0);
 
   const sendMessage = useCallback((payload) => {
@@ -57,8 +75,25 @@ const useGameConnection = (url) => {
 
   useEffect(() => {
     const handleParsedData = (parsedData) => {
+      if (isSessionPayload(parsedData)) {
+        lastUsernameRef.current = parsedData.username;
+        resumeTokenRef.current = parsedData.resumeToken;
+        saveStoredSession({
+          username: parsedData.username,
+          resumeToken: parsedData.resumeToken,
+        });
+        return;
+      }
       if (isPlayerListPayload(parsedData)) {
         setPlayers(parsedData.players);
+        return;
+      }
+      if (isUsernameErrorPayload(parsedData)) {
+        lastUsernameRef.current = '';
+        resumeTokenRef.current = '';
+        clearStoredSession();
+        setGameData(parsedData);
+        setGameState(GAME_STATES.SET_USERNAME);
         return;
       }
       setGameData(parsedData);
@@ -82,6 +117,8 @@ const useGameConnection = (url) => {
       setGameData(null);
       setIsConnected(false);
       setPlayers([]);
+      setConnectionStatus(url ? 'connecting' : 'offline');
+      setReconnectDelayMs(0);
     };
 
     const connect = () => {
@@ -97,6 +134,9 @@ const useGameConnection = (url) => {
       ) {
         return;
       }
+      setConnectionStatus((currentStatus) =>
+        currentStatus === 'reconnecting' ? 'reconnecting' : 'connecting'
+      );
       socketIdRef.current += 1;
       const socketId = socketIdRef.current;
       const ws = new WebSocket(url);
@@ -125,13 +165,16 @@ const useGameConnection = (url) => {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
         }
-        reconnectDelayRef.current = 1000;
+        reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+        setReconnectDelayMs(0);
+        setConnectionStatus('connected');
         setIsConnected(true);
         if (lastUsernameRef.current) {
           ws.send(
             JSON.stringify({
               type: 'set_username',
               username: lastUsernameRef.current,
+              resumeToken: resumeTokenRef.current,
             })
           );
         }
@@ -150,7 +193,11 @@ const useGameConnection = (url) => {
         }
       };
 
-      ws.onerror = () => {};
+      ws.onerror = () => {
+        if (isCurrentSocket()) {
+          setConnectionStatus('error');
+        }
+      };
 
       ws.onclose = () => {
         if (!isCurrentSocket()) {
@@ -160,10 +207,12 @@ const useGameConnection = (url) => {
           clearTimeout(connectTimeoutRef.current);
           connectTimeoutRef.current = null;
         }
-        resetConnectionState();
+        setIsConnected(false);
         socketRef.current = null;
         if (!shouldReconnectRef.current) return;
         const delay = reconnectDelayRef.current;
+        setConnectionStatus('reconnecting');
+        setReconnectDelayMs(delay);
         reconnectDelayRef.current = Math.min(
           reconnectDelayRef.current * 2,
           MAX_RECONNECT_DELAY
@@ -184,7 +233,8 @@ const useGameConnection = (url) => {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
         }
-        reconnectDelayRef.current = 1000;
+        reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+        setReconnectDelayMs(0);
         connect();
       }
     };
@@ -216,15 +266,25 @@ const useGameConnection = (url) => {
         socketRef.current = null;
       }
     };
-  }, [url]);
+  }, [url, connectVersion]);
 
   const sendUsername = useCallback(
     (username) => {
+      const previousUsername = lastUsernameRef.current;
+      if (
+        previousUsername &&
+        previousUsername.toLowerCase() !== username.toLowerCase()
+      ) {
+        resumeTokenRef.current = '';
+        clearStoredSession();
+      }
       lastUsernameRef.current = username;
-      sendMessage(
+      setGameData(null);
+      return sendMessage(
         JSON.stringify({
           type: 'set_username',
           username,
+          resumeToken: resumeTokenRef.current,
         })
       );
     },
@@ -243,14 +303,14 @@ const useGameConnection = (url) => {
       if (difficulty) {
         payload.difficulty = difficulty;
       }
-      sendMessage(JSON.stringify(payload));
+      return sendMessage(JSON.stringify(payload));
     },
     [sendMessage]
   );
 
   const selectGame = useCallback(
     (gameId) => {
-      sendMessage(JSON.stringify({ gameId }));
+      return sendMessage(JSON.stringify({ gameId }));
     },
     [sendMessage]
   );
@@ -261,6 +321,7 @@ const useGameConnection = (url) => {
       if (sent) {
         setGameState(GAME_STATES.WAITING);
       }
+      return sent;
     },
     [sendMessage]
   );
@@ -271,30 +332,40 @@ const useGameConnection = (url) => {
       if (sent) {
         setGameState(GAME_STATES.WAITING);
       }
+      return sent;
     },
     [sendMessage]
   );
 
   const sendReady = useCallback(() => {
-    sendMessage('ready');
+    return sendMessage('ready');
   }, [sendMessage]);
 
   const playAgain = useCallback(() => {
-    sendMessage('play again');
+    return sendMessage('play again');
   }, [sendMessage]);
 
   const setupGame = useCallback(() => {
-    sendMessage('setup game');
+    return sendMessage('setup game');
   }, [sendMessage]);
 
   const newGame = useCallback(() => {
-    sendMessage('new game');
+    return sendMessage('new game');
   }, [sendMessage]);
+
+  const reconnect = useCallback(() => {
+    reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+    setReconnectDelayMs(0);
+    setConnectionStatus(url ? 'connecting' : 'offline');
+    setConnectVersion((version) => version + 1);
+  }, [url]);
 
   return {
     gameState,
     gameData,
     isConnected,
+    connectionStatus,
+    reconnectDelayMs,
     players,
     actions: {
       sendUsername,
@@ -306,6 +377,7 @@ const useGameConnection = (url) => {
       playAgain,
       setupGame,
       newGame,
+      reconnect,
     },
   };
 };

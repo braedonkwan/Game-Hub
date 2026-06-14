@@ -1,23 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import Screen from '../components/Screen';
 
-const UsernameScreen = ({ onSubmit, isConnected }) => {
+const UsernameScreen = ({ onSubmit, isConnected, error }) => {
   const [username, setUsername] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
 
   useEffect(() => {
-    if (!isConnected) {
+    if (!isConnected || error) {
       setIsSubmitting(false);
     }
-  }, [isConnected]);
+  }, [isConnected, error]);
 
   const handleSubmit = (event) => {
     event.preventDefault();
     const trimmed = username.trim();
     if (!trimmed || !isConnected || !hasInteracted) return;
-    setIsSubmitting(true);
-    onSubmit(trimmed);
+    const sent = onSubmit(trimmed);
+    if (sent) {
+      setIsSubmitting(true);
+    }
   };
 
   return (
@@ -25,6 +27,7 @@ const UsernameScreen = ({ onSubmit, isConnected }) => {
       <form className="vertical fade-in" onSubmit={handleSubmit} autoComplete="off">
         <div className="title">Enter your name</div>
         <div className="subtitle">Pick a name and jump into the lobby.</div>
+        {error ? <div className="error-text">{error}</div> : null}
         <input
           type="text"
           value={username}

@@ -4,6 +4,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test server/*.test.js",
     "get-token": "node get-refresh-token.js"
   },
   "dependencies": {

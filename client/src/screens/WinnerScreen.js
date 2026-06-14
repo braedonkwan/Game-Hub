@@ -3,21 +3,25 @@ import Screen from '../components/Screen';
 
 const WinnerScreen = ({ scoreboard }) => {
   const fireworks = useMemo(() => Array.from({ length: 18 }), []);
-  const winner = useMemo(() => {
+  const winners = useMemo(() => {
     const entries = Object.values(scoreboard || {});
-    if (!entries.length) return null;
-    return entries.reduce((top, entry) =>
-      entry.score > top.score ? entry : top
-    );
+    if (!entries.length) return [];
+    const topScore = Math.max(...entries.map((entry) => entry.score));
+    return entries.filter((entry) => entry.score === topScore);
   }, [scoreboard]);
+  const hasWinner = winners.length > 0;
+  const winnerScore = hasWinner ? winners[0].score : 0;
+  const winnerNames = winners.map((entry) => entry.username).join(', ');
 
-  const winnerText = winner
-    ? `The winner is ${winner.username} with a score of ${winner.score}`
+  const winnerText = hasWinner
+    ? winners.length === 1
+      ? `The winner is ${winnerNames} with a score of ${winnerScore}`
+      : `Tie game: ${winnerNames} with ${winnerScore} points`
     : 'Game over';
 
   return (
     <>
-      {winner && (
+      {hasWinner && (
         <div className="fireworks" aria-hidden="true">
           {fireworks.map((_, index) => (
             <span key={`firework-${index}`} className="firework" />

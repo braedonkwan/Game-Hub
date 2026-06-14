@@ -1,16 +1,20 @@
-const REQUIRED_ENV = ['CLIENT_ID', 'CLIENT_SECRET', 'REFRESH_TOKEN'];
+const SPOTIFY_ENV_KEYS = ['CLIENT_ID', 'CLIENT_SECRET', 'REFRESH_TOKEN'];
 const DEFAULT_PORT = 8888;
 
-function validateEnv(env) {
-    const missing = REQUIRED_ENV.filter((key) => !env[key]);
-    if (missing.length) {
-        console.error(`[ERROR] Missing required env vars: ${missing.join(', ')}`);
-        process.exit(1);
-    }
-}
+const getMissingSpotifyEnv = (env) =>
+    SPOTIFY_ENV_KEYS.filter((key) => !env[key]);
+const isTruthyEnv = (value) => /^(1|true|yes)$/i.test(String(value || '').trim());
 
 const env = process.env;
-validateEnv(env);
+const MISSING_SPOTIFY_ENV = getMissingSpotifyEnv(env);
+const SPOTIFY_DISABLED = isTruthyEnv(env.SPOTIFY_DISABLED);
+const SPOTIFY_CONFIGURED = !SPOTIFY_DISABLED && MISSING_SPOTIFY_ENV.length === 0;
+if (!SPOTIFY_CONFIGURED) {
+    const reason = SPOTIFY_DISABLED
+        ? 'disabled by SPOTIFY_DISABLED'
+        : `missing environment variables: ${MISSING_SPOTIFY_ENV.join(', ')}`;
+    console.warn(`[spotify] Disabled: ${reason}.`);
+}
 
 const PORT = Number(env.PORT) || DEFAULT_PORT;
 const HOST = env.IP_ADDRESS || '0.0.0.0';
@@ -26,4 +30,9 @@ module.exports = {
     CLIENT_ID,
     CLIENT_SECRET,
     REFRESH_TOKEN,
+    SPOTIFY_CONFIGURED,
+    SPOTIFY_DISABLED,
+    MISSING_SPOTIFY_ENV,
+    getMissingSpotifyEnv,
+    isTruthyEnv,
 };

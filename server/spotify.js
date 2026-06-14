@@ -1,5 +1,10 @@
 const axios = require('axios');
-const { CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN } = require('./config');
+const {
+    CLIENT_ID,
+    CLIENT_SECRET,
+    REFRESH_TOKEN,
+    SPOTIFY_CONFIGURED,
+} = require('./config');
 const {
     MAX_ATTEMPTS,
     SPOTIFY_RETRY_ATTEMPTS,
@@ -8,6 +13,7 @@ const {
 
 let accessToken;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const isSpotifyReady = () => Boolean(accessToken);
 
 async function spotifyRequest(config, description) {
     for (let attempt = 1; attempt <= SPOTIFY_RETRY_ATTEMPTS; attempt++) {
@@ -28,6 +34,9 @@ async function spotifyRequest(config, description) {
 }
 
 async function refreshAccessToken(delayMs) {
+    if (!SPOTIFY_CONFIGURED) {
+        throw new Error('Spotify credentials are not configured.');
+    }
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
         try {
             const resp = await axios.post('https://accounts.spotify.com/api/token', null, {
@@ -52,7 +61,8 @@ async function refreshAccessToken(delayMs) {
             }
         }
     }
-    console.error('[ERROR] Refresh token failed after max attempts. Shutting down.');
+    accessToken = null;
+    console.error('[ERROR] Spotify refresh token failed after max attempts.');
     throw new Error('Failed to refresh access token');
 }
 
@@ -174,6 +184,7 @@ async function nextTrack() {
 
 module.exports = {
     refreshAccessToken,
+    isSpotifyReady,
     getUserPlaylists,
     loadPlaylist,
     playPlaylist,

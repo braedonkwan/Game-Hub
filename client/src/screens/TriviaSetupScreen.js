@@ -40,8 +40,10 @@ const TriviaSetupScreen = ({ config, onStart }) => {
   const handleSubmit = () => {
     const max = parseInt(rounds, 10);
     if (!max || max < 1 || max > maxRounds) return;
-    setIsSubmitting(true);
-    onStart({ maxRounds: max, category, difficulty });
+    const sent = onStart({ maxRounds: max, category, difficulty });
+    if (sent) {
+      setIsSubmitting(true);
+    }
   };
 
   return (

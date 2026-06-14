@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import './App.css';
+import ConnectionBanner from './components/ConnectionBanner';
 import useGameConnection from './hooks/useGameConnection';
 import { GAME_STATES } from './utils/gameState';
 import getWebSocketUrl from './utils/websocketUrl';
@@ -20,6 +21,8 @@ const App = () => {
     gameState,
     gameData,
     isConnected,
+    connectionStatus,
+    reconnectDelayMs,
     players,
     actions: {
       sendUsername,
@@ -31,6 +34,7 @@ const App = () => {
       playAgain,
       setupGame,
       newGame,
+      reconnect,
     },
   } = useGameConnection(websocketUrl);
 
@@ -49,15 +53,25 @@ const App = () => {
 
   const playlistError =
     gameData?.type === 'playlist_list' ? gameData.error : null;
+  const playlistSetupConfig =
+    gameData?.type === 'playlist_list' ? gameData : null;
   const isTriviaSetup = gameData?.type === 'trivia_setup';
   const isTriviaQuestion = gameData?.type === 'trivia_question';
+  const usernameError =
+    gameData?.type === 'username_error' ? gameData.message : null;
   const scoreboardPayload = gameData?.type === 'scoreboard' ? gameData : null;
   const scoreboardData = scoreboardPayload?.scores ?? gameData;
 
   const renderScreen = () => {
     switch (gameState) {
       case GAME_STATES.SET_USERNAME:
-        return <UsernameScreen onSubmit={sendUsername} isConnected={isConnected} />;
+        return (
+          <UsernameScreen
+            onSubmit={sendUsername}
+            isConnected={isConnected}
+            error={usernameError}
+          />
+        );
       case GAME_STATES.READY:
         return (
           <WaitingScreen
@@ -75,6 +89,7 @@ const App = () => {
         ) : (
           <SetupScreen
             playlists={listData}
+            config={playlistSetupConfig}
             onStart={startGame}
             error={playlistError}
           />
@@ -86,6 +101,10 @@ const App = () => {
             options={gameData.options}
             round={gameData.round}
             total={gameData.total}
+            startedAt={gameData.roundStartedAt}
+            deadlineAt={gameData.answerDeadlineAt}
+            serverSentAt={gameData.serverSentAt}
+            maxScore={gameData.maxScore}
             onAnswer={sendTriviaAnswer}
           />
         ) : (
@@ -96,7 +115,15 @@ const App = () => {
           <WaitingScreen message="Waiting for other players to guess..." players={players} />
         );
       case GAME_STATES.SCOREBOARD:
-        return <ScoreboardScreen scoreboard={scoreboardData} onReady={sendReady} />;
+        return (
+          <ScoreboardScreen
+            scoreboard={scoreboardData}
+            round={scoreboardPayload?.round}
+            total={scoreboardPayload?.total}
+            roundResult={scoreboardPayload?.roundResult}
+            onReady={sendReady}
+          />
+        );
       case GAME_STATES.GAME_OVER:
         return <WinnerScreen scoreboard={scoreboardData} />;
       case GAME_STATES.PLAY_AGAIN:
@@ -113,10 +140,15 @@ const App = () => {
   };
 
   return (
-    <>
+    <main className="app-shell">
       <div className="bg-particles" aria-hidden="true" />
+      <ConnectionBanner
+        status={connectionStatus}
+        reconnectDelayMs={reconnectDelayMs}
+        onReconnect={reconnect}
+      />
       {renderScreen()}
-    </>
+    </main>
   );
 };
 

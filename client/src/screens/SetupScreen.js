@@ -1,12 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import Screen from '../components/Screen';
 
-const SetupScreen = ({ playlists, onStart, error }) => {
-  const [rounds, setRounds] = useState('');
+const SetupScreen = ({ playlists, config, onStart, error }) => {
+  const defaultRounds = config?.maxRoundsDefault ?? 5;
+  const minRounds = config?.maxRoundsMin ?? 1;
+  const maxRounds = config?.maxRoundsMax ?? 50;
+  const [rounds, setRounds] = useState(String(defaultRounds));
   const [selectedPlaylist, setSelectedPlaylist] = useState(
     playlists[0]?.playlistID || ''
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const hasPlaylists = playlists.length > 0;
 
   useEffect(() => {
     const firstPlaylist = playlists[0]?.playlistID || '';
@@ -19,6 +23,10 @@ const SetupScreen = ({ playlists, onStart, error }) => {
     setIsSubmitting(false);
   }, [playlists, error]);
 
+  useEffect(() => {
+    setRounds(String(defaultRounds));
+  }, [defaultRounds]);
+
   const handleRoundsChange = (event) => {
     const value = event.target.value;
     if (/^([1-9][0-9]{0,2})?$/.test(value)) {
@@ -27,10 +35,19 @@ const SetupScreen = ({ playlists, onStart, error }) => {
   };
 
   const handleSubmit = () => {
-    const maxRounds = parseInt(rounds, 10);
-    if (!maxRounds || !selectedPlaylist) return;
-    setIsSubmitting(true);
-    onStart({ maxRounds, playlistId: selectedPlaylist });
+    const parsedRounds = parseInt(rounds, 10);
+    if (
+      !parsedRounds ||
+      parsedRounds < minRounds ||
+      parsedRounds > maxRounds ||
+      !selectedPlaylist
+    ) {
+      return;
+    }
+    const sent = onStart({ maxRounds: parsedRounds, playlistId: selectedPlaylist });
+    if (sent) {
+      setIsSubmitting(true);
+    }
   };
 
   return (
@@ -38,7 +55,12 @@ const SetupScreen = ({ playlists, onStart, error }) => {
       <div className="title">Set up the game</div>
       <div className="subtitle">Choose your playlist and the number of rounds.</div>
       {error ? <div className="error-text">{error}</div> : null}
-      <label className="muted-label">Number of Rounds</label>
+      {!hasPlaylists ? (
+        <div className="error-text">No playlists are available yet.</div>
+      ) : null}
+      <label className="muted-label">
+        Number of Rounds ({minRounds}-{maxRounds})
+      </label>
       <input
         type="text"
         value={rounds}
@@ -50,6 +72,7 @@ const SetupScreen = ({ playlists, onStart, error }) => {
         value={selectedPlaylist}
         onChange={(event) => setSelectedPlaylist(event.target.value)}
         className="long-input"
+        disabled={!hasPlaylists}
       >
         {playlists.map((playlist) => (
           <option key={playlist.playlistID} value={playlist.playlistID}>
@@ -61,7 +84,7 @@ const SetupScreen = ({ playlists, onStart, error }) => {
         type="button"
         value="Start Game"
         onClick={handleSubmit}
-        disabled={isSubmitting}
+        disabled={isSubmitting || !hasPlaylists}
         className="button"
       />
     </Screen>

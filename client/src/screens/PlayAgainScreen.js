@@ -11,8 +11,10 @@ const PlayAgainScreen = ({ onPlayAgain, onSetupGame, onNewGame }) => {
   ];
 
   const handleAction = (action) => () => {
-    setIsButtonDisabled(true);
-    action();
+    const sent = action();
+    if (sent) {
+      setIsButtonDisabled(true);
+    }
   };
 
   return (

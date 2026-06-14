@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
+import OptionCard from '../components/OptionCard';
+import PlayerList from '../components/PlayerList';
 import Screen from '../components/Screen';
 
 const GameSelectScreen = ({ games, onSelect, players }) => {
   const [selectedGameId, setSelectedGameId] = useState(null);
   const hasSelected = selectedGameId !== null;
-  const playerList = Array.isArray(players) ? players : [];
-  const hasPlayers = playerList.length > 0;
 
   const handleSelect = (gameId) => {
     if (hasSelected) return;
-    setSelectedGameId(gameId);
-    onSelect(gameId);
+    const sent = onSelect(gameId);
+    if (sent) {
+      setSelectedGameId(gameId);
+    }
   };
 
   return (
@@ -23,31 +25,7 @@ const GameSelectScreen = ({ games, onSelect, players }) => {
       </div>
       <div className="hub-body">
         <div className="hub-side">
-          <div className="hub-card">
-            <div className="hub-card-title">Players</div>
-            {hasPlayers ? (
-              <div className="player-list">
-                {playerList.map((player) => {
-                  const displayName = player.username || 'Joining...';
-                  return (
-                    <div
-                      key={player.id}
-                      className={`player-chip${
-                        player.isLeader ? ' player-chip--leader' : ''
-                      }`}
-                    >
-                      <span className="player-name">{displayName}</span>
-                      {player.isLeader ? (
-                        <span className="player-leader">Leader</span>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="player-empty">Waiting for players to join...</div>
-            )}
-          </div>
+          <PlayerList players={players} className="hub-card" />
         </div>
         <div className="grid hub-grid">
           {games.length === 0 ? (
@@ -57,25 +35,18 @@ const GameSelectScreen = ({ games, onSelect, players }) => {
               {games.map((game) => {
                 const isSelected = selectedGameId === game.id;
                 return (
-                  <button
+                  <OptionCard
                     key={game.id}
-                    type="button"
-                    className={`selection-box${
-                      isSelected ? ' selection-box--selected' : ''
-                    }`}
+                    title={game.name}
+                    description={game.description}
+                    eyebrow={game.tag}
+                    meta={game.meta}
+                    highlights={game.highlights}
+                    status={game.available === false ? game.unavailableReason : null}
+                    selected={isSelected}
                     onClick={() => handleSelect(game.id)}
-                    disabled={hasSelected}
-                    aria-pressed={isSelected}
-                  >
-                    <div className="selection">
-                      <strong>{game.name}</strong>
-                    </div>
-                    {game.description && (
-                      <div className="selection selection-description">
-                        {game.description}
-                      </div>
-                    )}
-                  </button>
+                    disabled={hasSelected || game.available === false}
+                  />
                 );
               })}
             </>

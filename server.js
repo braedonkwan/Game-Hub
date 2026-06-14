@@ -4,22 +4,77 @@ const express = require('express');
 const path = require('path');
 const http = require('http');
 const WebSocket = require('ws');
-const axios = require('axios');
 
-const { PORT, HOST, DISPLAY_HOST } = require('./server/config');
+const {
+    PORT,
+    HOST,
+    DISPLAY_HOST,
+    SPOTIFY_CONFIGURED,
+    SPOTIFY_DISABLED,
+} = require('./server/config');
 const {
     GAME_STATES,
     REFRESH_FREQUENCY_MINUTES,
     CONNECTION_HEARTBEAT_MS,
+    CONNECTION_RECONNECT_GRACE_MS,
+    GAME_OVER_DISPLAY_MS,
+    ROUND_ANSWER_TIMEOUT_MS,
+    SPOTIFY_DEFAULT_ROUNDS,
+    SPOTIFY_MAX_ROUNDS,
+    SPOTIFY_MIN_ROUNDS,
 } = require('./server/constants');
 const {
     refreshAccessToken,
+    isSpotifyReady,
     getUserPlaylists,
     loadPlaylist,
     playPlaylist,
-    getCurrentTrack,
     nextTrack,
 } = require('./server/spotify');
+const {
+    buildGameCatalog,
+    GAME_CATALOG,
+    SPOTIFY_GAME_ID,
+    TRIVIA_GAME_ID,
+} = require('./server/gameCatalog');
+const {
+    canAdvancePastState,
+    isDeadlineExpired,
+} = require('./server/phaseCoordinator');
+const { buildRoundResult } = require('./server/roundResult');
+const { scoreRound } = require('./server/roundScoring');
+const { MAX_ROUND_SCORE } = require('./server/scoring');
+const { createResumeToken, isValidResumeToken } = require('./server/session');
+const {
+    buildPlayerListPayload: createPlayerListPayload,
+    getActiveLeader: findActiveLeader,
+    getLeaderCandidates: findLeaderCandidates,
+} = require('./server/playerRoster');
+const { songSelection } = require('./server/spotifyGame');
+const {
+    TRIVIA_DEFAULT_CATEGORY,
+    TRIVIA_DEFAULT_DIFFICULTY,
+    TRIVIA_MAX_ROUNDS,
+    TRIVIA_MIN_ROUNDS,
+    buildTriviaPayload,
+    createTriviaState,
+    getTriviaSetupPayload,
+    loadTriviaQuestions,
+    normalizeTriviaCategory,
+    normalizeTriviaDifficulty,
+} = require('./server/trivia');
+const {
+    isSameUsername,
+    normalizeUsername,
+    parseJson,
+    parseUsernamePayload,
+    sleep,
+} = require('./server/utils');
+const {
+    isOpen,
+    sendJson,
+    updateClientState,
+} = require('./server/wsTransport');
 
 const {
     SET_USERNAME,
@@ -33,277 +88,10 @@ const {
     SELECT_GAME,
 } = GAME_STATES;
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const parseJson = (value) => {
-    try {
-        return JSON.parse(value);
-    } catch {
-        return null;
-    }
-};
-const normalizeUsername = (value) => String(value || '').trim();
-const parseUsernamePayload = (value) => {
-    const payload = parseJson(value);
-    if (payload && typeof payload === 'object') {
-        return { username: normalizeUsername(payload.username) };
-    }
-    return { username: normalizeUsername(value) };
-};
-const isSameUsername = (left, right) => {
-    const leftName = normalizeUsername(left);
-    const rightName = normalizeUsername(right);
-    if (!leftName || !rightName) {
-        return false;
-    }
-    return leftName.toLowerCase() === rightName.toLowerCase();
-};
-const decodeHtml = (value) => {
-    if (!value) return '';
-    return value
-        .replace(/&#x([0-9a-fA-F]+);/g, (_match, hex) =>
-            String.fromCharCode(parseInt(hex, 16))
-        )
-        .replace(/&#(\d+);/g, (_match, num) =>
-            String.fromCharCode(parseInt(num, 10))
-        )
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'")
-        .replace(/&#039;/g, "'")
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&ldquo;|&rdquo;/g, '"')
-        .replace(/&hellip;/g, '...');
-};
-const shuffleArray = (list) => {
-    const items = [...list];
-    for (let i = items.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [items[i], items[j]] = [items[j], items[i]];
-    }
-    return items;
-};
-const selectionKey = (selection) =>
-    `${selection?.name || ''}::${selection?.artists || ''}`;
 const SELECTION_DELAY_MS = 500;
-const TRIVIA_MIN_ROUNDS = 1;
-const TRIVIA_MAX_ROUNDS = 20;
-const TRIVIA_DEFAULT_ROUNDS = 5;
-const TRIVIA_DEFAULT_CATEGORY = 'any';
-const TRIVIA_DEFAULT_DIFFICULTY = 'any';
-const TRIVIA_DIFFICULTIES = [
-    { id: 'any', name: 'Any difficulty' },
-    { id: 'easy', name: 'Easy' },
-    { id: 'medium', name: 'Medium' },
-    { id: 'hard', name: 'Hard' },
-];
-const createTriviaState = (overrides = {}) => ({
-    questions: [],
-    index: 0,
-    correctAnswer: '',
-    currentPayload: null,
-    category: TRIVIA_DEFAULT_CATEGORY,
-    difficulty: TRIVIA_DEFAULT_DIFFICULTY,
-    ...overrides,
-});
-const GAME_CATALOG = [
-    {
-        id: 'spotify',
-        name: 'Spotify Guess the Song',
-        description: 'Guess the currently playing Spotify track.',
-        type: 'game',
-        tag: 'Music',
-        badge: 'SP',
-        meta: {
-            players: '2-8',
-            rounds: 'Leader set',
-            time: '10-20 min',
-            difficulty: 'Easy',
-        },
-        highlights: ['Live Spotify playback', 'Fastest guess wins'],
-    },
-    {
-        id: 'trivia',
-        name: 'Trivia Challenge',
-        description: 'Answer general trivia questions as fast as you can.',
-        type: 'game',
-        tag: 'Trivia',
-        badge: 'TR',
-        meta: {
-            players: '2-8',
-            rounds: '1-20',
-            time: '8-15 min',
-            difficulty: 'Varies',
-        },
-        highlights: ['Multiple choice', 'Timed scoring'],
-    },
-];
-const SPOTIFY_GAME_ID = 'spotify';
-const TRIVIA_GAME_ID = 'trivia';
-let triviaCategoriesCache = [];
-let triviaCategoriesPromise = null;
-let triviaSetupId = 0;
 let playlistCache = [];
-
-const loadTriviaCategories = async () => {
-    if (triviaCategoriesCache.length) {
-        return triviaCategoriesCache;
-    }
-    if (triviaCategoriesPromise) {
-        return triviaCategoriesPromise;
-    }
-    triviaCategoriesPromise = axios
-        .get('https://opentdb.com/api_category.php')
-        .then((resp) => {
-            const categories = Array.isArray(resp.data?.trivia_categories)
-                ? resp.data.trivia_categories
-                : [];
-            triviaCategoriesCache = categories.map((category) => ({
-                id: category.id,
-                name: decodeHtml(category.name),
-            }));
-            return triviaCategoriesCache;
-        })
-        .catch((err) => {
-            console.error('[ERROR] Failed to load trivia categories.', err?.message || err);
-            return [];
-        })
-        .finally(() => {
-            triviaCategoriesPromise = null;
-        });
-    return triviaCategoriesPromise;
-};
-
-const getTriviaSetupPayload = async (overrides = {}) => {
-    const categories = await loadTriviaCategories();
-    triviaSetupId += 1;
-    return {
-        type: 'trivia_setup',
-        maxRoundsDefault: TRIVIA_DEFAULT_ROUNDS,
-        maxRoundsMax: TRIVIA_MAX_ROUNDS,
-        categories,
-        difficulties: TRIVIA_DIFFICULTIES,
-        defaultCategory: TRIVIA_DEFAULT_CATEGORY,
-        defaultDifficulty: TRIVIA_DEFAULT_DIFFICULTY,
-        setupId: triviaSetupId,
-        ...overrides,
-    };
-};
-const GAME_HANDLERS = {
-    [SPOTIFY_GAME_ID]: {
-        setup: async (client) => {
-            await loadPlaylistsForClient(client);
-        },
-    },
-    [TRIVIA_GAME_ID]: {
-        setup: async (client) => {
-            await sendTriviaSetup(client);
-        },
-    },
-};
-
-// helper functions
-function getRandomTrack(playlist) {
-    if (!playlist?.length) {
-        throw new Error('Selected playlist is empty. Choose a playlist with tracks.');
-    }
-    const i = Math.floor(Math.random() * playlist.length);
-    return playlist[i];
-}
-
-async function songSelection(playlist) {
-    const clean = (name) => name.replace(/\s(?:\(feat\..*|\(with.*)/i, '');
-    const current = await getCurrentTrack();
-    if (!current) {
-        throw new Error('No track currently playing. Start Spotify playback and try again.');
-    }
-    if (playlist.length < 4) {
-        throw new Error('Playlist must have at least 4 tracks.');
-    }
-    const out = {
-        'current track': {
-            name: clean(current.name),
-            artists: current.artists.map((artist) => artist.name).join(', '),
-        },
-    };
-    const seen = new Set([current.id]);
-    for (let i = 1; i <= 3; i++) {
-        let rnd;
-        do {
-            rnd = getRandomTrack(playlist);
-        } while (seen.has(rnd.id));
-        seen.add(rnd.id);
-        out[`random track ${i}`] = {
-            name: clean(rnd.name),
-            artists: rnd.artists.map((artist) => artist.name).join(', '),
-        };
-    }
-    return out;
-}
-
-const toTriviaQuestion = (question) => ({
-    question: decodeHtml(question.question),
-    correctAnswer: decodeHtml(question.correct_answer),
-    incorrectAnswers: question.incorrect_answers.map((answer) => decodeHtml(answer)),
-});
-
-const TRIVIA_DIFFICULTY_SET = new Set(['easy', 'medium', 'hard']);
-const normalizeTriviaCategory = (value) => {
-    if (!value || value === TRIVIA_DEFAULT_CATEGORY) {
-        return null;
-    }
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-};
-const normalizeTriviaDifficulty = (value) => {
-    if (!value || value === TRIVIA_DEFAULT_DIFFICULTY) {
-        return null;
-    }
-    const normalized = String(value).toLowerCase();
-    return TRIVIA_DIFFICULTY_SET.has(normalized) ? normalized : null;
-};
-
-const buildTriviaPayload = (round) => {
-    const trivia = game.trivia;
-    const question = trivia.questions[trivia.index];
-    if (!question) {
-        return null;
-    }
-    const options = shuffleArray([...question.incorrectAnswers, question.correctAnswer]);
-    trivia.correctAnswer = question.correctAnswer;
-    trivia.currentPayload = {
-        type: 'trivia_question',
-        question: question.question,
-        options,
-        round,
-        total: game.maxRounds,
-    };
-    return trivia.currentPayload;
-};
-
-async function loadTriviaQuestions(amount, { category, difficulty } = {}) {
-    const count = Math.min(Math.max(amount, TRIVIA_MIN_ROUNDS), TRIVIA_MAX_ROUNDS);
-    const normalizedCategory = normalizeTriviaCategory(category);
-    const normalizedDifficulty = normalizeTriviaDifficulty(difficulty);
-    try {
-        const resp = await axios.get('https://opentdb.com/api.php', {
-            params: {
-                amount: count,
-                type: 'multiple',
-                ...(normalizedCategory ? { category: normalizedCategory } : {}),
-                ...(normalizedDifficulty ? { difficulty: normalizedDifficulty } : {}),
-            },
-        });
-        if (resp.data?.response_code !== 0) {
-            console.error('[ERROR] Trivia API returned no results.');
-            return [];
-        }
-        return (resp.data.results || []).map(toTriviaQuestion);
-    } catch (err) {
-        console.error('[ERROR] Failed to load trivia questions.', err?.message || err);
-        return [];
-    }
-}
+let roundTimeout = null;
+let scoreboardTransitionInProgress = false;
 
 // express + websocket setup
 const app = express();
@@ -337,47 +125,58 @@ const game = {
     rounds: 1,
     maxRounds: 0,
     startTime: 0,
+    answerDeadlineAt: 0,
     phase: SET_USERNAME,
     trivia: createTriviaState(),
     lastRoundDeltas: null,
 };
 
-const isOpen = (ws) => ws.readyState === WebSocket.OPEN;
 const isActiveClient = (client) => !!client && isOpen(client.ws);
-const sendJson = (ws, payload) => {
-    if (isOpen(ws)) {
-        ws.send(JSON.stringify(payload));
-    }
-};
-const sendState = (ws, state) => {
-    if (isOpen(ws)) {
-        ws.send(`state ${state}`);
-    }
-};
-const updateClientState = (client, state, payload) => {
-    client.state = state;
-    if (payload === undefined) {
-        sendState(client.ws, state);
-    } else {
-        sendJson(client.ws, payload);
-    }
-};
 const setPlaylistCache = (playlists) => {
     playlistCache = Array.isArray(playlists) ? playlists : [];
     return playlistCache;
 };
 const getPlaylistCache = () => playlistCache;
-const buildGameListPayload = () => ({ type: 'game_list', games: GAME_CATALOG });
+const getSpotifyUnavailableReason = () => {
+    if (!SPOTIFY_CONFIGURED) {
+        return SPOTIFY_DISABLED
+            ? 'Spotify is disabled on this server.'
+            : 'Spotify credentials are not configured.';
+    }
+    return 'Spotify is connecting. Try again shortly.';
+};
+const buildGameListPayload = () => ({
+    type: 'game_list',
+    games: buildGameCatalog({
+        spotifyAvailable: isSpotifyReady(),
+        spotifyUnavailableReason: getSpotifyUnavailableReason(),
+    }),
+});
 const buildPlaylistPayload = (playlists, error) => ({
     type: 'playlist_list',
     playlists: Array.isArray(playlists) ? playlists : [],
+    maxRoundsDefault: SPOTIFY_DEFAULT_ROUNDS,
+    maxRoundsMin: SPOTIFY_MIN_ROUNDS,
+    maxRoundsMax: SPOTIFY_MAX_ROUNDS,
     ...(error ? { error } : {}),
 });
 const sendGameList = (client) =>
     updateClientState(client, SELECT_GAME, buildGameListPayload());
 const sendPlaylistList = (client, playlists, error) =>
     updateClientState(client, SETUP, buildPlaylistPayload(playlists, error));
+const sendUsernameError = (client, message) =>
+    sendJson(client.ws, { type: 'username_error', message });
+const sendSession = (client) =>
+    sendJson(client.ws, {
+        type: 'session',
+        username: client.username,
+        resumeToken: client.resumeToken,
+    });
 const loadPlaylistsForClient = async (client, errorMessage) => {
+    if (!isSpotifyReady()) {
+        sendPlaylistList(client, [], errorMessage || getSpotifyUnavailableReason());
+        return;
+    }
     try {
         const playlists = setPlaylistCache(await getUserPlaylists());
         sendPlaylistList(client, playlists, errorMessage);
@@ -393,17 +192,20 @@ const sendTriviaSetup = async (client, error) => {
     const payload = await getTriviaSetupPayload(error ? { error } : {});
     updateClientState(client, SETUP, payload);
 };
-const buildPlayerListPayload = () => ({
-    type: 'player_list',
-    players: [...clients.values()]
-        .filter((client) => isActiveClient(client))
-        .map((client) => ({
-            id: client.id,
-            username: client.username || '',
-            isLeader: client.gameleader,
-            state: client.state,
-        })),
-});
+const GAME_HANDLERS = {
+    [SPOTIFY_GAME_ID]: {
+        setup: async (client) => {
+            await loadPlaylistsForClient(client);
+        },
+    },
+    [TRIVIA_GAME_ID]: {
+        setup: async (client) => {
+            await sendTriviaSetup(client);
+        },
+    },
+};
+const buildPlayerListPayload = () =>
+    createPlayerListPayload(clients, isActiveClient);
 const broadcastPlayers = () => {
     const payload = buildPlayerListPayload();
     broadcast((client) => isActiveClient(client), (client) => {
@@ -424,37 +226,63 @@ const buildScoreboardPayload = () => ({
     round: game.rounds,
     total: game.maxRounds,
     gameId: game.activeGameId,
+    roundResult: buildRoundResult({
+        activeGameId: game.activeGameId,
+        triviaAnswer: game.trivia.correctAnswer,
+        currentTrack: game.selections?.['current track'],
+    }),
 });
 const sendScoreboardState = (client, state) => {
     sendJson(client.ws, buildScoreboardPayload());
     updateClientState(client, state);
 };
+const setCurrentSelectionPayload = (payload) => {
+    if (game.activeGameId === TRIVIA_GAME_ID) {
+        game.trivia.currentPayload = payload;
+        return;
+    }
+    game.selections = payload;
+};
+const addRoundMetadata = (payload) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return payload;
+    }
+    const serverSentAt = Date.now();
+    return {
+        ...payload,
+        round: game.rounds,
+        total: game.maxRounds,
+        roundStartedAt: game.startTime,
+        answerDeadlineAt: game.answerDeadlineAt,
+        serverSentAt,
+        maxScore: MAX_ROUND_SCORE,
+    };
+};
 const getCurrentSelectionPayload = () => {
     if (game.activeGameId === TRIVIA_GAME_ID) {
-        return game.trivia.currentPayload;
+        return addRoundMetadata(game.trivia.currentPayload);
     }
-    return game.selections;
+    return addRoundMetadata(game.selections);
 };
 const startSelectionPhase = (predicate, payload, { resetScores = false } = {}) => {
+    clearRoundTimeout();
     game.startTime = Date.now();
+    game.answerDeadlineAt = game.startTime + ROUND_ANSWER_TIMEOUT_MS;
     game.phase = SELECT_ANSWER;
     game.lastRoundDeltas = null;
+    const roundPayload = addRoundMetadata(payload);
+    setCurrentSelectionPayload(roundPayload);
     broadcast(predicate, (client, id) => {
         client.answer = null;
         client.answerTime = 0;
         if (resetScores || !game.scoreboard[id]) {
             game.scoreboard[id] = { username: client.username, score: 0 };
         }
-        updateClientState(client, SELECT_ANSWER, payload);
+        updateClientState(client, SELECT_ANSWER, roundPayload);
     });
-};
-const allClientsNotInState = (state) => {
-    for (const client of clients.values()) {
-        if (isActiveClient(client) && client.state === state) {
-            return false;
-        }
-    }
-    return true;
+    roundTimeout = setTimeout(() => {
+        finalizeCurrentRound();
+    }, ROUND_ANSWER_TIMEOUT_MS);
 };
 const broadcast = (predicate, cb) => {
     clients.forEach((client, id) => {
@@ -464,30 +292,19 @@ const broadcast = (predicate, cb) => {
     });
 };
 
-const getActiveLeader = () => {
-    for (const client of clients.values()) {
-        if (client.gameleader && isActiveClient(client)) {
-            return client;
-        }
+function clearRoundTimeout() {
+    if (roundTimeout) {
+        clearTimeout(roundTimeout);
+        roundTimeout = null;
     }
-    return null;
-};
+}
+
+const getActiveLeader = () => findActiveLeader(clients, isActiveClient);
 
 const hasActiveLeader = () => Boolean(getActiveLeader());
 
-const getLeaderCandidates = () => {
-    const entries = [...clients.entries()].filter(
-        ([, client]) => client.username && isActiveClient(client)
-    );
-    if (!entries.length) {
-        return [];
-    }
-    if (![SET_USERNAME, SELECT_GAME, SETUP].includes(game.phase)) {
-        const active = entries.filter(([, client]) => client.state !== READY);
-        return active.length ? active : entries;
-    }
-    return entries;
-};
+const getLeaderCandidates = () =>
+    findLeaderCandidates(clients, isActiveClient, game.phase);
 
 const promoteNextLeader = async () => {
     if (clients.size === 0 || hasActiveLeader()) {
@@ -528,6 +345,36 @@ const ensureLeaderAssigned = async () => {
         return;
     }
     await promoteNextLeader();
+};
+
+const scheduleDisconnectedClientCleanup = (clientID, client) => {
+    if (client.reconnectCleanup) {
+        clearTimeout(client.reconnectCleanup);
+    }
+    client.disconnectedAt = Date.now();
+    client.reconnectCleanup = setTimeout(() => {
+        if (clients.get(clientID) !== client) {
+            return;
+        }
+        clients.delete(clientID);
+        if (game.scoreboard[clientID]) {
+            delete game.scoreboard[clientID];
+        }
+        if (clients.size === 0) {
+            clientIDCounter = 0;
+            resetGameState();
+            return;
+        }
+        broadcastPlayers();
+        if (!hasActiveLeader()) {
+            promoteNextLeader().catch((err) => {
+                console.error(
+                    '[ERROR] Failed to promote leader after reconnect window expired.',
+                    err?.message || err
+                );
+            });
+        }
+    }, CONNECTION_RECONNECT_GRACE_MS);
 };
 
 const ensureScoreboardEntry = (client) => {
@@ -602,47 +449,90 @@ const syncClientState = async (client) => {
 };
 
 function scoreCurrentRound() {
-    const deltas = {};
-    Object.keys(game.scoreboard).forEach((id) => {
-        deltas[id] = 0;
+    const result = scoreRound({
+        activeGameId: game.activeGameId,
+        triviaAnswer: game.trivia.correctAnswer,
+        currentTrack: game.selections?.['current track'],
+        clients,
+        scoreboard: game.scoreboard,
+        waitingState: WAITING,
     });
+    game.scoreboard = result.scoreboard;
+    game.lastRoundDeltas = result.deltas;
+}
 
-    if (game.activeGameId === TRIVIA_GAME_ID) {
-        const correctAnswer = game.trivia.correctAnswer;
-        if (!correctAnswer) {
-            game.lastRoundDeltas = deltas;
-            return;
-        }
-        clients.forEach((client, id) => {
-            if (client.state !== WAITING || !client.answer || !game.scoreboard[id]) {
-                return;
-            }
-            if (client.answer === correctAnswer) {
-                const points = 1000 - Math.round(Math.sqrt(client.answerTime));
-                game.scoreboard[id].score += points;
-                deltas[id] = points;
-            }
-        });
-        game.lastRoundDeltas = deltas;
-        return;
+function finalizeCurrentRound() {
+    if (game.phase !== SELECT_ANSWER) {
+        return false;
     }
-    const currentSelection = game.selections?.['current track'];
-    if (!currentSelection) {
-        game.lastRoundDeltas = deltas;
-        return;
+    clearRoundTimeout();
+    scoreCurrentRound();
+    game.phase = SCOREBOARD;
+    broadcast(
+        (client) =>
+            isActiveClient(client) &&
+            (client.state === SELECT_ANSWER || client.state === WAITING),
+        (client) => {
+            updateClientState(client, SCOREBOARD, buildScoreboardPayload());
+        }
+    );
+    return true;
+}
+
+async function advanceFromScoreboard() {
+    if (
+        game.phase !== SCOREBOARD ||
+        scoreboardTransitionInProgress ||
+        !canAdvancePastState(clients, SCOREBOARD, isActiveClient)
+    ) {
+        return false;
     }
-    const currentKey = selectionKey(currentSelection);
-    clients.forEach((client, id) => {
-        if (client.state !== WAITING || !client.answer || !game.scoreboard[id]) {
-            return;
+
+    scoreboardTransitionInProgress = true;
+    try {
+        if (game.rounds >= game.maxRounds) {
+            game.phase = GAME_OVER;
+            broadcast(
+                (client) => isActiveClient(client) && client.state === WAITING,
+                (client) => {
+                    sendScoreboardState(client, GAME_OVER);
+                }
+            );
+            await sleep(GAME_OVER_DISPLAY_MS);
+            game.phase = PLAY_AGAIN;
+            broadcast(
+                (client) =>
+                    isActiveClient(client) &&
+                    client.state === GAME_OVER &&
+                    client.gameleader,
+                (client) => {
+                    updateClientState(client, PLAY_AGAIN);
+                }
+            );
+            return true;
         }
-        if (selectionKey(client.answer) === currentKey) {
-            const points = 1000 - Math.round(Math.sqrt(client.answerTime));
-            game.scoreboard[id].score += points;
-            deltas[id] = points;
+
+        game.rounds += 1;
+        if (game.activeGameId === TRIVIA_GAME_ID) {
+            game.trivia.index = game.rounds - 1;
+            await startTriviaRound((client) => client.state === WAITING);
+            return true;
         }
-    });
-    game.lastRoundDeltas = deltas;
+        try {
+            await advanceTrackAndStart((client) => client.state === WAITING);
+        } catch (err) {
+            console.error(
+                '[ERROR] Failed to advance Spotify round.',
+                err?.message || err?.response?.data || err
+            );
+            await resetToSetupWithError(
+                err?.message || 'Unable to advance the Spotify round.'
+            );
+        }
+        return true;
+    } finally {
+        scoreboardTransitionInProgress = false;
+    }
 }
 
 async function setSelectionsAndStart(predicate, { resetScores = false } = {}) {
@@ -657,7 +547,11 @@ async function advanceTrackAndStart(predicate, { resetScores = false } = {}) {
 }
 
 async function startTriviaRound(predicate, { resetScores = false } = {}) {
-    const payload = buildTriviaPayload(game.rounds);
+    const payload = buildTriviaPayload({
+        trivia: game.trivia,
+        round: game.rounds,
+        total: game.maxRounds,
+    });
     if (!payload) {
         return;
     }
@@ -683,9 +577,11 @@ async function startTriviaGame(predicate, { resetScores = false } = {}) {
 }
 
 function resetRoundState() {
+    clearRoundTimeout();
     game.rounds = 1;
     game.scoreboard = {};
     game.startTime = 0;
+    game.answerDeadlineAt = 0;
     game.trivia.correctAnswer = '';
     game.trivia.currentPayload = null;
     game.trivia.index = 0;
@@ -704,6 +600,21 @@ function resetActiveGameData() {
     game.playlist = [];
     game.selections = null;
     game.trivia = createTriviaState();
+}
+
+async function returnRoomToGameSelect() {
+    resetActiveGameData();
+    game.activeGameId = null;
+    game.phase = SELECT_GAME;
+    await ensureLeaderAssigned();
+    broadcast((client) => isActiveClient(client), (client) => {
+        if (client.gameleader) {
+            sendGameList(client);
+        } else {
+            updateClientState(client, READY);
+        }
+    });
+    broadcastPlayers();
 }
 
 async function resetToSetupWithError(errorMessage) {
@@ -731,7 +642,7 @@ async function resetToSetupWithError(errorMessage) {
 }
 
 async function handleSetUsername(client, text) {
-    const { username } = parseUsernamePayload(text);
+    const { username, resumeToken } = parseUsernamePayload(text);
     const trimmed = normalizeUsername(username);
     if (!trimmed) {
         return;
@@ -741,6 +652,19 @@ async function handleSetUsername(client, text) {
     );
     if (existingEntry) {
         const [existingId, existingClient] = existingEntry;
+        if (!isValidResumeToken(existingClient.resumeToken, resumeToken)) {
+            sendUsernameError(
+                client,
+                isActiveClient(existingClient)
+                    ? 'That name is already in use.'
+                    : 'That name is reserved while the player reconnects.'
+            );
+            return;
+        }
+        if (existingClient.reconnectCleanup) {
+            clearTimeout(existingClient.reconnectCleanup);
+            existingClient.reconnectCleanup = null;
+        }
         if (existingClient.gameleader) {
             existingClient.gameleader = false;
             client.gameleader = true;
@@ -761,11 +685,24 @@ async function handleSetUsername(client, text) {
         clients.delete(existingId);
     }
     client.username = trimmed;
+    client.resumeToken = createResumeToken();
     if (!client.gameleader) {
         await ensureLeaderAssigned();
     }
+    sendSession(client);
     broadcastPlayers();
     await syncClientState(client);
+    if (
+        game.phase === SELECT_ANSWER &&
+        canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)
+    ) {
+        finalizeCurrentRound();
+    } else if (
+        game.phase === SCOREBOARD &&
+        canAdvancePastState(clients, SCOREBOARD, isActiveClient)
+    ) {
+        await advanceFromScoreboard();
+    }
 }
 
 async function handleGameSelect(client, text) {
@@ -779,6 +716,10 @@ async function handleGameSelect(client, text) {
     }
     const selectedGame = GAME_CATALOG.find((entry) => entry.id === gameId);
     if (!selectedGame) {
+        return;
+    }
+    if (selectedGame.id === SPOTIFY_GAME_ID && !isSpotifyReady()) {
+        sendGameList(client);
         return;
     }
     resetActiveGameData();
@@ -804,10 +745,21 @@ async function handleSetup(client, text) {
         return;
     }
     const requestedRounds = Number(cfg['max rounds'] ?? cfg.maxRounds);
-    if (!requestedRounds) {
+    if (!Number.isInteger(requestedRounds)) {
         return;
     }
     if (game.activeGameId === SPOTIFY_GAME_ID) {
+        if (
+            requestedRounds < SPOTIFY_MIN_ROUNDS ||
+            requestedRounds > SPOTIFY_MAX_ROUNDS
+        ) {
+            sendPlaylistList(
+                client,
+                getPlaylistCache(),
+                `Rounds must be between ${SPOTIFY_MIN_ROUNDS} and ${SPOTIFY_MAX_ROUNDS}.`
+            );
+            return;
+        }
         const playlistId = cfg['playlist ID'] ?? cfg.playlistId;
         if (!playlistId) {
             return;
@@ -867,7 +819,12 @@ function handleSelectAnswer(client, text) {
     if (!payload) {
         return;
     }
-    const elapsed = game.startTime ? Date.now() - game.startTime : 0;
+    const answeredAt = Date.now();
+    if (isDeadlineExpired(game.answerDeadlineAt, answeredAt)) {
+        finalizeCurrentRound();
+        return;
+    }
+    const elapsed = game.startTime ? answeredAt - game.startTime : 0;
     client.answerTime = elapsed;
     if (game.activeGameId === TRIVIA_GAME_ID) {
         if (payload.type !== 'trivia_answer') {
@@ -879,48 +836,17 @@ function handleSelectAnswer(client, text) {
     }
     client.state = WAITING;
 
-    if (allClientsNotInState(SELECT_ANSWER)) {
-        scoreCurrentRound();
-        game.phase = SCOREBOARD;
-        broadcast((c) => c.state === WAITING, (c) => {
-            updateClientState(c, SCOREBOARD, buildScoreboardPayload());
-        });
+    if (canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)) {
+        finalizeCurrentRound();
     }
 }
 
-async function handleScoreboard(client) {
+async function handleScoreboard(client, text) {
+    if (text !== 'ready') {
+        return;
+    }
     client.state = WAITING;
-    if (!allClientsNotInState(SCOREBOARD)) {
-        return;
-    }
-    if (game.rounds === game.maxRounds) {
-        game.phase = GAME_OVER;
-        broadcast((c) => c.state === WAITING, (c) => {
-            updateClientState(c, GAME_OVER);
-        });
-        await sleep(5000);
-        game.phase = PLAY_AGAIN;
-        broadcast((c) => c.state === GAME_OVER && c.gameleader, (c) => {
-            updateClientState(c, PLAY_AGAIN);
-        });
-        return;
-    }
-
-    game.rounds += 1;
-    if (game.activeGameId === TRIVIA_GAME_ID) {
-        game.trivia.index = game.rounds - 1;
-        await startTriviaRound((c) => c.state === WAITING);
-        return;
-    }
-    try {
-        await advanceTrackAndStart((c) => c.state === WAITING);
-    } catch (err) {
-        console.error(
-            '[ERROR] Failed to advance Spotify round.',
-            err?.message || err?.response?.data || err
-        );
-        await resetToSetupWithError(err?.message || 'Unable to advance the Spotify round.');
-    }
+    await advanceFromScoreboard();
 }
 
 async function handlePlayAgain(client, text) {
@@ -963,10 +889,10 @@ async function handlePlayAgain(client, text) {
         return;
     }
     if (text === 'new game') {
-        resetGameState();
-        broadcast((c) => c.state === GAME_OVER || c.state === PLAY_AGAIN, (c) => {
-            updateClientState(c, SET_USERNAME);
-        });
+        if (!client.gameleader) {
+            return;
+        }
+        await returnRoomToGameSelect();
     }
 }
 
@@ -986,9 +912,12 @@ wss.on('connection', (ws, req) => {
         ws,
         state: SET_USERNAME,
         username: '',
+        resumeToken: '',
         answer: null,
         answerTime: 0,
         gameleader: false,
+        disconnectedAt: null,
+        reconnectCleanup: null,
     });
     console.log(
         `[ws] Connected (id: ${clientID}). Waiting for username. IP=${remoteAddress} UA=${userAgent} ${forwardedFor ? `XFF=${forwardedFor}` : ''}`
@@ -1025,7 +954,7 @@ wss.on('connection', (ws, req) => {
                     return;
 
                 case SCOREBOARD:
-                    await handleScoreboard(client);
+                    await handleScoreboard(client, text);
                     return;
 
                 case PLAY_AGAIN:
@@ -1050,17 +979,28 @@ wss.on('connection', (ws, req) => {
             `[ws] Disconnected (id: ${clientID}). Code=${code}${reasonText ? ` Reason=${reasonText}` : ''}`
         );
         const disconnectedClient = clients.get(clientID);
-        const wasLeader = disconnectedClient?.gameleader;
-        clients.delete(clientID);
-        if (game.scoreboard[clientID]) {
-            delete game.scoreboard[clientID];
-        }
-        if (clients.size === 0) {
-            clientIDCounter = 0;
-            resetGameState();
+        if (!disconnectedClient) {
             return;
         }
+        const wasLeader = disconnectedClient?.gameleader;
+        scheduleDisconnectedClientCleanup(clientID, disconnectedClient);
         broadcastPlayers();
+        if (
+            game.phase === SELECT_ANSWER &&
+            canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)
+        ) {
+            finalizeCurrentRound();
+        } else if (
+            game.phase === SCOREBOARD &&
+            canAdvancePastState(clients, SCOREBOARD, isActiveClient)
+        ) {
+            advanceFromScoreboard().catch((err) => {
+                console.error(
+                    '[ERROR] Failed to advance after a scoreboard disconnect.',
+                    err?.message || err
+                );
+            });
+        }
         if (wasLeader || !hasActiveLeader()) {
             promoteNextLeader().catch((err) => {
                 console.error(
@@ -1072,21 +1012,48 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-async function startServer() {
-    await refreshAccessToken(5000);
-    setInterval(() => {
-        refreshAccessToken(5000).catch((err) => {
-            console.error(
-                '[ERROR] Failed to refresh access token after retries. Shutting down.',
-                err?.response?.data || err?.message || err
-            );
-            process.exit(1);
-        });
-    }, REFRESH_FREQUENCY_MINUTES * 60 * 1000);
+const refreshSpotifyAvailability = async () => {
+    try {
+        await refreshAccessToken(5000);
+    } catch (err) {
+        console.error(
+            '[spotify] Unavailable after refresh attempts.',
+            err?.response?.data || err?.message || err
+        );
+    }
+    broadcast(
+        (client) =>
+            isActiveClient(client) &&
+            client.gameleader &&
+            client.state === SELECT_GAME,
+        (client) => sendGameList(client)
+    );
+};
 
-    server.listen(PORT, HOST, () => {
-        console.log(`[server] Listening on http://${DISPLAY_HOST}:${PORT}`);
+async function startServer() {
+    await new Promise((resolve, reject) => {
+        const handleError = (err) => {
+            server.off('listening', handleListening);
+            reject(err);
+        };
+        const handleListening = () => {
+            server.off('error', handleError);
+            console.log(`[server] Listening on http://${DISPLAY_HOST}:${PORT}`);
+            resolve();
+        };
+        server.once('error', handleError);
+        server.once('listening', handleListening);
+        server.listen(PORT, HOST);
     });
+
+    if (!SPOTIFY_CONFIGURED) {
+        return;
+    }
+    refreshSpotifyAvailability();
+    setInterval(
+        refreshSpotifyAvailability,
+        REFRESH_FREQUENCY_MINUTES * 60 * 1000
+    );
 }
 
 // run server

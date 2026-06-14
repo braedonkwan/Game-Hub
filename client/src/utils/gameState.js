@@ -60,3 +60,13 @@ export const isPlayerListPayload = (payload) =>
   typeof payload === 'object' &&
   payload.type === 'player_list' &&
   Array.isArray(payload.players);
+
+export const isUsernameErrorPayload = (payload) =>
+  payload && typeof payload === 'object' && payload.type === 'username_error';
+
+export const isSessionPayload = (payload) =>
+  payload &&
+  typeof payload === 'object' &&
+  payload.type === 'session' &&
+  typeof payload.username === 'string' &&
+  typeof payload.resumeToken === 'string';

@@ -6,6 +6,9 @@ client/node_modules/
 client/build/
 client/dist/
 
+# Local dev server logs
+client-dev-server*.log
+
 # Environment variables
 .env
 client/.env
