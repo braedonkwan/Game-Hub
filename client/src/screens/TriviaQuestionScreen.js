@@ -4,7 +4,10 @@ import RoundStatus from '../components/RoundStatus';
 import Screen from '../components/Screen';
 
 const TriviaQuestionScreen = ({
+  category,
+  difficulty,
   question,
+  questionType,
   options,
   round,
   total,
@@ -21,6 +24,9 @@ const TriviaQuestionScreen = ({
     () => (round && total ? `Question ${round} of ${total}` : 'Trivia'),
     [round, total]
   );
+  const metaItems = [category, difficulty, questionType]
+    .filter(Boolean)
+    .map((value) => String(value));
 
   useEffect(() => {
     setHasSubmitted(false);
@@ -46,6 +52,13 @@ const TriviaQuestionScreen = ({
         maxScore={maxScore}
       />
       <div className="title">{title}</div>
+      {metaItems.length ? (
+        <div className="question-meta">
+          {metaItems.map((item) => (
+            <span key={item}>{item}</span>
+          ))}
+        </div>
+      ) : null}
       <div className="text-container">{question}</div>
       <div className="grid">
         {safeOptions.map((option, index) => (

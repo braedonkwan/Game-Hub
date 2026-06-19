@@ -1,47 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   GAME_STATES,
-  isGameListPayload,
-  isPlaylistPayload,
   isPlayerListPayload,
-  isScoreboardPayload,
-  isSelectionPayload,
   isSessionPayload,
-  isTriviaQuestionPayload,
-  isTriviaSetupPayload,
   isUsernameErrorPayload,
   parseStateMessage,
 } from '../utils/gameState';
+import {
+  CONNECT_TIMEOUT_MS,
+  INITIAL_RECONNECT_DELAY,
+  MAX_RECONNECT_DELAY,
+  canUseNetwork,
+  deriveStateFromPayload,
+  getInitialConnectionStatus,
+  parseSocketMessage,
+} from '../utils/connection';
+import {
+  NEW_GAME_MESSAGE,
+  PLAY_AGAIN_MESSAGE,
+  READY_MESSAGE,
+  SETUP_GAME_MESSAGE,
+  buildGameSelectMessage,
+  buildGuessMessage,
+  buildStartGameMessage,
+  buildTriviaAnswerMessage,
+  buildUsernameMessage,
+} from '../utils/clientMessages';
 import {
   clearStoredSession,
   loadStoredSession,
   saveStoredSession,
 } from '../utils/session';
-
-const CONNECT_TIMEOUT_MS = 20000;
-const MAX_RECONNECT_DELAY = 30000;
-const INITIAL_RECONNECT_DELAY = 1000;
-
-const parseMessage = (data) => {
-  if (typeof data !== 'string') return null;
-  try {
-    return JSON.parse(data);
-  } catch {
-    return data;
-  }
-};
-
-const deriveStateFromPayload = (payload) => {
-  if (isGameListPayload(payload)) return GAME_STATES.SELECT_GAME;
-  if (isTriviaSetupPayload(payload) || isPlaylistPayload(payload)) {
-    return GAME_STATES.SETUP;
-  }
-  if (isTriviaQuestionPayload(payload) || isSelectionPayload(payload)) {
-    return GAME_STATES.SELECT_ANSWER;
-  }
-  if (isScoreboardPayload(payload)) return GAME_STATES.SCOREBOARD;
-  return null;
-};
 
 const useGameConnection = (url) => {
   const initialSessionRef = useRef(undefined);
@@ -52,7 +41,7 @@ const useGameConnection = (url) => {
   const [gameData, setGameData] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState(
-    url ? 'connecting' : 'offline'
+    getInitialConnectionStatus(url)
   );
   const [reconnectDelayMs, setReconnectDelayMs] = useState(0);
   const [connectVersion, setConnectVersion] = useState(0);
@@ -68,10 +57,13 @@ const useGameConnection = (url) => {
 
   const sendMessage = useCallback((payload) => {
     const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setConnectionStatus(getInitialConnectionStatus(url));
+      return false;
+    }
     socket.send(payload);
     return true;
-  }, []);
+  }, [url]);
 
   useEffect(() => {
     const handleParsedData = (parsedData) => {
@@ -117,13 +109,18 @@ const useGameConnection = (url) => {
       setGameData(null);
       setIsConnected(false);
       setPlayers([]);
-      setConnectionStatus(url ? 'connecting' : 'offline');
+      setConnectionStatus(getInitialConnectionStatus(url));
       setReconnectDelayMs(0);
     };
 
     const connect = () => {
       if (!url) {
         resetConnectionState();
+        return;
+      }
+      if (!canUseNetwork()) {
+        setConnectionStatus('offline');
+        setReconnectDelayMs(0);
         return;
       }
       const existingSocket = socketRef.current;
@@ -171,8 +168,7 @@ const useGameConnection = (url) => {
         setIsConnected(true);
         if (lastUsernameRef.current) {
           ws.send(
-            JSON.stringify({
-              type: 'set_username',
+            buildUsernameMessage({
               username: lastUsernameRef.current,
               resumeToken: resumeTokenRef.current,
             })
@@ -184,7 +180,7 @@ const useGameConnection = (url) => {
         if (!isCurrentSocket()) {
           return;
         }
-        const parsedData = parseMessage(event.data);
+        const parsedData = parseSocketMessage(event.data);
         if (!parsedData) return;
         if (typeof parsedData === 'string') {
           handleStateString(parsedData);
@@ -210,6 +206,11 @@ const useGameConnection = (url) => {
         setIsConnected(false);
         socketRef.current = null;
         if (!shouldReconnectRef.current) return;
+        if (!canUseNetwork()) {
+          setConnectionStatus('offline');
+          setReconnectDelayMs(0);
+          return;
+        }
         const delay = reconnectDelayRef.current;
         setConnectionStatus('reconnecting');
         setReconnectDelayMs(delay);
@@ -221,21 +222,41 @@ const useGameConnection = (url) => {
       };
     };
 
+    const retryNow = () => {
+      if (!url || !shouldReconnectRef.current || !canUseNetwork()) return;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
+      setReconnectDelayMs(0);
+      setConnectionStatus('connecting');
+      connect();
+    };
+
     const handleVisibilityChange = () => {
       if (!shouldReconnectRef.current) return;
       if (document.visibilityState !== 'visible') return;
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
-        if (socket && socket.readyState === WebSocket.CLOSING) {
-          socket.close();
-        }
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-          reconnectTimeoutRef.current = null;
-        }
-        reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
-        setReconnectDelayMs(0);
-        connect();
+        retryNow();
+      }
+    };
+
+    const handleOnline = () => {
+      retryNow();
+    };
+
+    const handleOffline = () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      setIsConnected(false);
+      setReconnectDelayMs(0);
+      setConnectionStatus('offline');
+      if (socketRef.current) {
+        socketRef.current.close();
       }
     };
 
@@ -249,6 +270,8 @@ const useGameConnection = (url) => {
     shouldReconnectRef.current = true;
     connect();
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
@@ -260,6 +283,8 @@ const useGameConnection = (url) => {
         clearTimeout(connectTimeoutRef.current);
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       if (socketRef.current) {
         socketRef.current.close();
@@ -281,43 +306,27 @@ const useGameConnection = (url) => {
       lastUsernameRef.current = username;
       setGameData(null);
       return sendMessage(
-        JSON.stringify({
-          type: 'set_username',
-          username,
-          resumeToken: resumeTokenRef.current,
-        })
+        buildUsernameMessage({ username, resumeToken: resumeTokenRef.current })
       );
     },
     [sendMessage]
   );
 
   const startGame = useCallback(
-    ({ maxRounds, playlistId, category, difficulty }) => {
-      const payload = { 'max rounds': maxRounds };
-      if (playlistId) {
-        payload['playlist ID'] = playlistId;
-      }
-      if (category) {
-        payload.category = category;
-      }
-      if (difficulty) {
-        payload.difficulty = difficulty;
-      }
-      return sendMessage(JSON.stringify(payload));
-    },
+    (setup) => sendMessage(buildStartGameMessage(setup)),
     [sendMessage]
   );
 
   const selectGame = useCallback(
     (gameId) => {
-      return sendMessage(JSON.stringify({ gameId }));
+      return sendMessage(buildGameSelectMessage(gameId));
     },
     [sendMessage]
   );
 
   const sendTriviaAnswer = useCallback(
     (answer) => {
-      const sent = sendMessage(JSON.stringify({ type: 'trivia_answer', answer }));
+      const sent = sendMessage(buildTriviaAnswerMessage(answer));
       if (sent) {
         setGameState(GAME_STATES.WAITING);
       }
@@ -328,7 +337,7 @@ const useGameConnection = (url) => {
 
   const sendGuess = useCallback(
     (selection) => {
-      const sent = sendMessage(JSON.stringify(selection));
+      const sent = sendMessage(buildGuessMessage(selection));
       if (sent) {
         setGameState(GAME_STATES.WAITING);
       }
@@ -338,25 +347,25 @@ const useGameConnection = (url) => {
   );
 
   const sendReady = useCallback(() => {
-    return sendMessage('ready');
+    return sendMessage(READY_MESSAGE);
   }, [sendMessage]);
 
   const playAgain = useCallback(() => {
-    return sendMessage('play again');
+    return sendMessage(PLAY_AGAIN_MESSAGE);
   }, [sendMessage]);
 
   const setupGame = useCallback(() => {
-    return sendMessage('setup game');
+    return sendMessage(SETUP_GAME_MESSAGE);
   }, [sendMessage]);
 
   const newGame = useCallback(() => {
-    return sendMessage('new game');
+    return sendMessage(NEW_GAME_MESSAGE);
   }, [sendMessage]);
 
   const reconnect = useCallback(() => {
     reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
     setReconnectDelayMs(0);
-    setConnectionStatus(url ? 'connecting' : 'offline');
+    setConnectionStatus(getInitialConnectionStatus(url));
     setConnectVersion((version) => version + 1);
   }, [url]);
 

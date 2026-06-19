@@ -19,9 +19,6 @@ const {
     CONNECTION_RECONNECT_GRACE_MS,
     GAME_OVER_DISPLAY_MS,
     ROUND_ANSWER_TIMEOUT_MS,
-    SPOTIFY_DEFAULT_ROUNDS,
-    SPOTIFY_MAX_ROUNDS,
-    SPOTIFY_MIN_ROUNDS,
 } = require('./server/constants');
 const {
     refreshAccessToken,
@@ -37,13 +34,18 @@ const {
     SPOTIFY_GAME_ID,
     TRIVIA_GAME_ID,
 } = require('./server/gameCatalog');
+const { applySpotifySetup, applyTriviaSetup } = require('./server/gameSetup');
+const { buildHealthPayload } = require('./server/health');
 const {
     canAdvancePastState,
     isDeadlineExpired,
 } = require('./server/phaseCoordinator');
-const { buildRoundResult } = require('./server/roundResult');
 const { scoreRound } = require('./server/roundScoring');
-const { MAX_ROUND_SCORE } = require('./server/scoring');
+const {
+    addRoundMetadata,
+    buildScoreboardPayload: createScoreboardPayload,
+    buildSelectionPayload,
+} = require('./server/roundPayload');
 const { createResumeToken, isValidResumeToken } = require('./server/session');
 const {
     buildPlayerListPayload: createPlayerListPayload,
@@ -52,16 +54,15 @@ const {
 } = require('./server/playerRoster');
 const { songSelection } = require('./server/spotifyGame');
 const {
-    TRIVIA_DEFAULT_CATEGORY,
-    TRIVIA_DEFAULT_DIFFICULTY,
-    TRIVIA_MAX_ROUNDS,
-    TRIVIA_MIN_ROUNDS,
+    buildSpotifySetupPayload,
+    validateSpotifySetup,
+} = require('./server/spotifySetup');
+const {
     buildTriviaPayload,
     createTriviaState,
     getTriviaSetupPayload,
     loadTriviaQuestions,
-    normalizeTriviaCategory,
-    normalizeTriviaDifficulty,
+    validateTriviaSetup,
 } = require('./server/trivia');
 const {
     isSameUsername,
@@ -97,6 +98,19 @@ let scoreboardTransitionInProgress = false;
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, perMessageDeflate: false });
+app.get('/health', (_req, res) => {
+    res.json(
+        buildHealthPayload({
+            activeClientCount: [...clients.values()].filter(isActiveClient).length,
+            activeGameId: game.activeGameId,
+            clientCount: clients.size,
+            phase: game.phase,
+            spotifyConfigured: SPOTIFY_CONFIGURED,
+            spotifyDisabled: SPOTIFY_DISABLED,
+            spotifyReady: isSpotifyReady(),
+        })
+    );
+});
 app.use('/game', express.static(path.join(__dirname, 'client', 'build')));
 app.get('/game/*', (_req, res) => {
     res.sendFile(path.join(__dirname, 'client', 'build', 'index.html'));
@@ -126,6 +140,7 @@ const game = {
     maxRounds: 0,
     startTime: 0,
     answerDeadlineAt: 0,
+    answerTimeoutMs: ROUND_ANSWER_TIMEOUT_MS,
     phase: SET_USERNAME,
     trivia: createTriviaState(),
     lastRoundDeltas: null,
@@ -152,18 +167,10 @@ const buildGameListPayload = () => ({
         spotifyUnavailableReason: getSpotifyUnavailableReason(),
     }),
 });
-const buildPlaylistPayload = (playlists, error) => ({
-    type: 'playlist_list',
-    playlists: Array.isArray(playlists) ? playlists : [],
-    maxRoundsDefault: SPOTIFY_DEFAULT_ROUNDS,
-    maxRoundsMin: SPOTIFY_MIN_ROUNDS,
-    maxRoundsMax: SPOTIFY_MAX_ROUNDS,
-    ...(error ? { error } : {}),
-});
 const sendGameList = (client) =>
     updateClientState(client, SELECT_GAME, buildGameListPayload());
 const sendPlaylistList = (client, playlists, error) =>
-    updateClientState(client, SETUP, buildPlaylistPayload(playlists, error));
+    updateClientState(client, SETUP, buildSpotifySetupPayload(playlists, error));
 const sendUsernameError = (client, message) =>
     sendJson(client.ws, { type: 'username_error', message });
 const sendSession = (client) =>
@@ -212,26 +219,22 @@ const broadcastPlayers = () => {
         sendJson(client.ws, payload);
     });
 };
-const buildScoreboardPayload = () => ({
-    type: 'scoreboard',
-    scores: Object.fromEntries(
-        Object.entries(game.scoreboard).map(([id, entry]) => [
-            id,
-            {
-                ...entry,
-                delta: game.lastRoundDeltas?.[id] ?? 0,
-            },
-        ])
-    ),
+const getRoundInfo = () => ({
     round: game.rounds,
     total: game.maxRounds,
-    gameId: game.activeGameId,
-    roundResult: buildRoundResult({
-        activeGameId: game.activeGameId,
-        triviaAnswer: game.trivia.correctAnswer,
-        currentTrack: game.selections?.['current track'],
-    }),
+    roundStartedAt: game.startTime,
+    answerDeadlineAt: game.answerDeadlineAt,
 });
+const buildScoreboardPayload = () =>
+    createScoreboardPayload({
+        activeGameId: game.activeGameId,
+        lastRoundDeltas: game.lastRoundDeltas,
+        maxRounds: game.maxRounds,
+        round: game.rounds,
+        scoreboard: game.scoreboard,
+        selections: game.selections,
+        trivia: game.trivia,
+    });
 const sendScoreboardState = (client, state) => {
     sendJson(client.ws, buildScoreboardPayload());
     updateClientState(client, state);
@@ -243,34 +246,20 @@ const setCurrentSelectionPayload = (payload) => {
     }
     game.selections = payload;
 };
-const addRoundMetadata = (payload) => {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-        return payload;
-    }
-    const serverSentAt = Date.now();
-    return {
-        ...payload,
-        round: game.rounds,
-        total: game.maxRounds,
-        roundStartedAt: game.startTime,
-        answerDeadlineAt: game.answerDeadlineAt,
-        serverSentAt,
-        maxScore: MAX_ROUND_SCORE,
-    };
-};
-const getCurrentSelectionPayload = () => {
-    if (game.activeGameId === TRIVIA_GAME_ID) {
-        return addRoundMetadata(game.trivia.currentPayload);
-    }
-    return addRoundMetadata(game.selections);
-};
+const getCurrentSelectionPayload = () =>
+    buildSelectionPayload({
+        activeGameId: game.activeGameId,
+        trivia: game.trivia,
+        selections: game.selections,
+        roundInfo: getRoundInfo(),
+    });
 const startSelectionPhase = (predicate, payload, { resetScores = false } = {}) => {
     clearRoundTimeout();
     game.startTime = Date.now();
-    game.answerDeadlineAt = game.startTime + ROUND_ANSWER_TIMEOUT_MS;
+    game.answerDeadlineAt = game.startTime + game.answerTimeoutMs;
     game.phase = SELECT_ANSWER;
     game.lastRoundDeltas = null;
-    const roundPayload = addRoundMetadata(payload);
+    const roundPayload = addRoundMetadata(payload, getRoundInfo());
     setCurrentSelectionPayload(roundPayload);
     broadcast(predicate, (client, id) => {
         client.answer = null;
@@ -282,7 +271,7 @@ const startSelectionPhase = (predicate, payload, { resetScores = false } = {}) =
     });
     roundTimeout = setTimeout(() => {
         finalizeCurrentRound();
-    }, ROUND_ANSWER_TIMEOUT_MS);
+    }, game.answerTimeoutMs);
 };
 const broadcast = (predicate, cb) => {
     clients.forEach((client, id) => {
@@ -562,6 +551,7 @@ async function startTriviaGame(predicate, { resetScores = false } = {}) {
     const questions = await loadTriviaQuestions(game.maxRounds, {
         category: game.trivia.category,
         difficulty: game.trivia.difficulty,
+        type: game.trivia.type,
     });
     if (!questions.length) {
         console.error('[ERROR] Trivia questions unavailable. Try again.');
@@ -597,6 +587,7 @@ function resetGameState() {
 function resetActiveGameData() {
     resetRoundState();
     game.maxRounds = 0;
+    game.answerTimeoutMs = ROUND_ANSWER_TIMEOUT_MS;
     game.playlist = [];
     game.selections = null;
     game.trivia = createTriviaState();
@@ -744,33 +735,17 @@ async function handleSetup(client, text) {
     if (!cfg) {
         return;
     }
-    const requestedRounds = Number(cfg['max rounds'] ?? cfg.maxRounds);
-    if (!Number.isInteger(requestedRounds)) {
-        return;
-    }
     if (game.activeGameId === SPOTIFY_GAME_ID) {
-        if (
-            requestedRounds < SPOTIFY_MIN_ROUNDS ||
-            requestedRounds > SPOTIFY_MAX_ROUNDS
-        ) {
-            sendPlaylistList(
-                client,
-                getPlaylistCache(),
-                `Rounds must be between ${SPOTIFY_MIN_ROUNDS} and ${SPOTIFY_MAX_ROUNDS}.`
-            );
-            return;
-        }
-        const playlistId = cfg['playlist ID'] ?? cfg.playlistId;
-        if (!playlistId) {
+        const setup = validateSpotifySetup(cfg);
+        if (!setup.ok) {
+            sendPlaylistList(client, getPlaylistCache(), setup.error);
             return;
         }
         try {
-            game.rounds = 1;
-            game.maxRounds = requestedRounds;
-            game.playlist = await loadPlaylist(playlistId);
-            await playPlaylist(playlistId);
+            applySpotifySetup(game, setup);
+            game.playlist = await loadPlaylist(setup.playlistId);
+            await playPlaylist(setup.playlistId);
             await sleep(SELECTION_DELAY_MS);
-            game.scoreboard = {};
             await setSelectionsAndStart(
                 (clientEntry) => clientEntry.state === READY || clientEntry.state === SETUP,
                 { resetScores: true }
@@ -791,16 +766,12 @@ async function handleSetup(client, text) {
         return;
     }
     if (game.activeGameId === TRIVIA_GAME_ID) {
-        game.rounds = 1;
-        game.maxRounds = Math.min(
-            Math.max(requestedRounds, TRIVIA_MIN_ROUNDS),
-            TRIVIA_MAX_ROUNDS
-        );
-        const normalizedCategory = normalizeTriviaCategory(cfg.category);
-        const normalizedDifficulty = normalizeTriviaDifficulty(cfg.difficulty);
-        game.trivia.category = normalizedCategory ?? TRIVIA_DEFAULT_CATEGORY;
-        game.trivia.difficulty = normalizedDifficulty ?? TRIVIA_DEFAULT_DIFFICULTY;
-        game.scoreboard = {};
+        const setup = validateTriviaSetup(cfg);
+        if (!setup.ok) {
+            await sendTriviaSetup(client, setup.error);
+            return;
+        }
+        applyTriviaSetup(game, setup);
         const started = await startTriviaGame(
             (clientEntry) => clientEntry.state === READY || clientEntry.state === SETUP,
             { resetScores: true }

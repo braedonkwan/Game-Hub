@@ -5,6 +5,7 @@ const {
     buildPlayerListPayload,
     getActiveLeader,
     getLeaderCandidates,
+    getPlayerStatusLabel,
 } = require('./playerRoster');
 
 const isActive = (client) => client.connected;
@@ -20,11 +21,39 @@ test('buildPlayerListPayload retains named disconnected players', () => {
     );
 
     assert.deepEqual(
-        payload.players.map(({ id, isConnected }) => ({ id, isConnected })),
+        payload.players.map(({ id, isConnected, status }) => ({
+            id,
+            isConnected,
+            status,
+        })),
         [
-            { id: 1, isConnected: true },
-            { id: 2, isConnected: false },
+            { id: 1, isConnected: true, status: 'Ready' },
+            { id: 2, isConnected: false, status: 'Reconnecting' },
         ]
+    );
+});
+
+test('getPlayerStatusLabel describes common player states', () => {
+    assert.equal(
+        getPlayerStatusLabel(
+            { username: 'A', connected: true, state: GAME_STATES.SELECT_ANSWER },
+            isActive
+        ),
+        'Answering'
+    );
+    assert.equal(
+        getPlayerStatusLabel(
+            { username: 'B', connected: true, state: GAME_STATES.SCOREBOARD },
+            isActive
+        ),
+        'Reviewing score'
+    );
+    assert.equal(
+        getPlayerStatusLabel(
+            { username: '', connected: false, state: GAME_STATES.SET_USERNAME },
+            isActive
+        ),
+        'Disconnected'
     );
 });
 

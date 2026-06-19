@@ -3,6 +3,7 @@ import './App.css';
 import ConnectionBanner from './components/ConnectionBanner';
 import useGameConnection from './hooks/useGameConnection';
 import { GAME_STATES } from './utils/gameState';
+import { getScreenData } from './utils/screenData';
 import getWebSocketUrl from './utils/websocketUrl';
 import GameSelectScreen from './screens/GameSelectScreen';
 import PlayAgainScreen from './screens/PlayAgainScreen';
@@ -38,29 +39,16 @@ const App = () => {
     },
   } = useGameConnection(websocketUrl);
 
-  const listData = useMemo(() => {
-    if (Array.isArray(gameData)) {
-      return gameData;
-    }
-    if (gameData?.type === 'game_list') {
-      return Array.isArray(gameData.games) ? gameData.games : [];
-    }
-    if (gameData?.type === 'playlist_list') {
-      return Array.isArray(gameData.playlists) ? gameData.playlists : [];
-    }
-    return [];
-  }, [gameData]);
-
-  const playlistError =
-    gameData?.type === 'playlist_list' ? gameData.error : null;
-  const playlistSetupConfig =
-    gameData?.type === 'playlist_list' ? gameData : null;
-  const isTriviaSetup = gameData?.type === 'trivia_setup';
-  const isTriviaQuestion = gameData?.type === 'trivia_question';
-  const usernameError =
-    gameData?.type === 'username_error' ? gameData.message : null;
-  const scoreboardPayload = gameData?.type === 'scoreboard' ? gameData : null;
-  const scoreboardData = scoreboardPayload?.scores ?? gameData;
+  const {
+    listData,
+    playlistError,
+    playlistSetupConfig,
+    isTriviaSetup,
+    isTriviaQuestion,
+    usernameError,
+    scoreboardPayload,
+    scoreboardData,
+  } = useMemo(() => getScreenData(gameData), [gameData]);
 
   const renderScreen = () => {
     switch (gameState) {
@@ -97,7 +85,10 @@ const App = () => {
       case GAME_STATES.SELECT_ANSWER:
         return isTriviaQuestion ? (
           <TriviaQuestionScreen
+            category={gameData.category}
+            difficulty={gameData.difficulty}
             question={gameData.question}
+            questionType={gameData.questionType}
             options={gameData.options}
             round={gameData.round}
             total={gameData.total}

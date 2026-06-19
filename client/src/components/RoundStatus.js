@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { calculateRoundScore, formatElapsedSeconds } from '../utils/scoring';
+import { buildRoundTimer } from '../utils/roundStatus';
 
 const RoundStatus = ({
   round,
@@ -16,10 +16,6 @@ const RoundStatus = ({
     Number.isFinite(startedAt) &&
     Number.isFinite(serverSentAt) &&
     Number.isFinite(maxScore);
-  const hasDeadline =
-    hasTimer &&
-    Number.isFinite(deadlineAt) &&
-    deadlineAt > startedAt;
 
   useEffect(() => {
     const received = Date.now();
@@ -28,24 +24,23 @@ const RoundStatus = ({
   }, [startedAt, deadlineAt, serverSentAt]);
 
   useEffect(() => {
-    if (!hasTimer && !hasDeadline) return undefined;
+    if (!hasTimer) return undefined;
     const intervalId = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(intervalId);
-  }, [hasDeadline, hasTimer]);
+  }, [hasTimer]);
 
   if (!hasRound && !hasTimer) {
     return null;
   }
 
-  const elapsedMs = hasTimer
-    ? Math.max(0, serverSentAt - startedAt) + (now - receivedAt)
-    : 0;
-  const score = hasTimer ? calculateRoundScore(elapsedMs, maxScore) : null;
-  const remainingMs = hasDeadline
-    ? Math.max(0, deadlineAt - serverSentAt - (now - receivedAt))
-    : null;
-  const remainingSeconds =
-    remainingMs === null ? null : Math.ceil(remainingMs / 1000);
+  const timer = buildRoundTimer({
+    answerDeadlineAt: deadlineAt,
+    maxScore,
+    now,
+    receivedAt,
+    roundStartedAt: startedAt,
+    serverSentAt,
+  });
 
   return (
     <div className="round-status" aria-live="polite">
@@ -54,17 +49,19 @@ const RoundStatus = ({
           Round <strong>{round}</strong> of <strong>{total}</strong>
         </span>
       ) : null}
-      {hasTimer ? (
+      {timer ? (
         <>
-          <span>
-            {hasDeadline
-              ? remainingSeconds > 0
-                ? `${remainingSeconds}s left`
-                : "Time's up"
-              : `${formatElapsedSeconds(elapsedMs)}s`}
+          <span className="round-status-meter">
+            {timer.progressPercent !== null ? (
+              <span
+                className="round-status-meter-fill"
+                style={{ width: `${timer.progressPercent}%` }}
+              />
+            ) : null}
+            <strong>{timer.label}</strong>
           </span>
           <span>
-            <strong>{score}</strong> pts available
+            <strong>{timer.score}</strong> pts available
           </span>
         </>
       ) : null}

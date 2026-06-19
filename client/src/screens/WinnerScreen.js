@@ -1,14 +1,10 @@
 import React, { useMemo } from 'react';
 import Screen from '../components/Screen';
+import { getWinners } from '../utils/scoreboard';
 
 const WinnerScreen = ({ scoreboard }) => {
   const fireworks = useMemo(() => Array.from({ length: 18 }), []);
-  const winners = useMemo(() => {
-    const entries = Object.values(scoreboard || {});
-    if (!entries.length) return [];
-    const topScore = Math.max(...entries.map((entry) => entry.score));
-    return entries.filter((entry) => entry.score === topScore);
-  }, [scoreboard]);
+  const winners = useMemo(() => getWinners(scoreboard), [scoreboard]);
   const hasWinner = winners.length > 0;
   const winnerScore = hasWinner ? winners[0].score : 0;
   const winnerNames = winners.map((entry) => entry.username).join(', ');

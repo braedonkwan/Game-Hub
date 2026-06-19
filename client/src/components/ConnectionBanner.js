@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { getConnectionDetail } from '../utils/connection';
 
 const statusCopy = {
   connecting: 'Connecting to the room...',
@@ -8,15 +9,29 @@ const statusCopy = {
 };
 
 const ConnectionBanner = ({ status, reconnectDelayMs, onReconnect }) => {
+  const [remainingMs, setRemainingMs] = useState(reconnectDelayMs || 0);
+
+  useEffect(() => {
+    if (status !== 'reconnecting' || !reconnectDelayMs) {
+      setRemainingMs(0);
+      return undefined;
+    }
+
+    const startedAt = Date.now();
+    setRemainingMs(reconnectDelayMs);
+    const intervalId = window.setInterval(() => {
+      const elapsedMs = Date.now() - startedAt;
+      setRemainingMs(Math.max(0, reconnectDelayMs - elapsedMs));
+    }, 250);
+
+    return () => window.clearInterval(intervalId);
+  }, [reconnectDelayMs, status]);
+
   if (!status || status === 'connected') {
     return null;
   }
 
-  const seconds = reconnectDelayMs ? Math.ceil(reconnectDelayMs / 1000) : 0;
-  const detail =
-    status === 'reconnecting' && seconds
-      ? `Next attempt in ${seconds}s`
-      : 'Keep this tab open.';
+  const detail = getConnectionDetail(status, remainingMs);
 
   return (
     <div className="connection-banner" role="status" aria-live="polite">

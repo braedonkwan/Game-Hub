@@ -1,4 +1,5 @@
 const { GAME_STATES } = require('./constants');
+const { getPlayerStateLabel } = require('./gameStateLabels');
 
 const {
     READY,
@@ -6,6 +7,13 @@ const {
     SETUP,
     SET_USERNAME,
 } = GAME_STATES;
+
+const getPlayerStatusLabel = (client, isActiveClient) => {
+    if (!isActiveClient(client)) {
+        return client.username ? 'Reconnecting' : 'Disconnected';
+    }
+    return getPlayerStateLabel(client.state);
+};
 
 const buildPlayerListPayload = (clients, isActiveClient) => ({
     type: 'player_list',
@@ -17,6 +25,7 @@ const buildPlayerListPayload = (clients, isActiveClient) => ({
             isLeader: client.gameleader,
             isConnected: isActiveClient(client),
             state: client.state,
+            status: getPlayerStatusLabel(client, isActiveClient),
         })),
 });
 
@@ -43,4 +52,5 @@ module.exports = {
     buildPlayerListPayload,
     getActiveLeader,
     getLeaderCandidates,
+    getPlayerStatusLabel,
 };

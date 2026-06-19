@@ -1,16 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import RoundResult from '../components/RoundResult';
 import Screen from '../components/Screen';
-
-const formatDelta = (value) => {
-  const delta = Number.isFinite(value) ? value : 0;
-  return delta >= 0 ? `+${delta}` : `${delta}`;
-};
+import { buildScoreRows } from '../utils/scoreboard';
 
 const ScoreboardScreen = ({ scoreboard, round, total, roundResult, onReady }) => {
   const [isButtonDisabled, setIsButtonDisabled] = useState(false);
-  const sortedScores = useMemo(
-    () => Object.values(scoreboard || {}).sort((a, b) => b.score - a.score),
+  const scoreRows = useMemo(
+    () => buildScoreRows(scoreboard),
     [scoreboard]
   );
   const hasProgress = Number.isFinite(round) && Number.isFinite(total) && total > 0;
@@ -32,7 +28,7 @@ const ScoreboardScreen = ({ scoreboard, round, total, roundResult, onReady }) =>
             : 'Faster correct guesses earn more points.'}
         </div>
         <RoundResult result={roundResult} />
-        {sortedScores.length ? (
+        {scoreRows.length ? (
           <table className="scoreboard-table">
             <thead>
               <tr>
@@ -41,18 +37,22 @@ const ScoreboardScreen = ({ scoreboard, round, total, roundResult, onReady }) =>
               </tr>
             </thead>
             <tbody>
-              {sortedScores.map((entry, index) => (
+              {scoreRows.map((entry) => (
                 <tr
-                  key={`${entry.username}-${index}`}
+                  key={entry.key}
                   className={`scoreboard-row${
-                    index === 0 ? ' scoreboard-row--leader' : ''
+                    entry.isLeader ? ' scoreboard-row--leader' : ''
                   }`}
                 >
                   <td>
-                    <span className="scoreboard-rank">{index + 1}</span>
+                    <span className="scoreboard-rank">{entry.rank}</span>
                     <span className="scoreboard-name">{entry.username}</span>
-                    <span className="scoreboard-delta">
-                      {formatDelta(entry.delta)}
+                    <span
+                      className={`scoreboard-delta${
+                        entry.delta ? ' scoreboard-delta--points' : ''
+                      }`}
+                    >
+                      {entry.deltaLabel}
                     </span>
                   </td>
                   <td className="scoreboard-score">{entry.score}</td>

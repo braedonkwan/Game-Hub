@@ -1,4 +1,5 @@
 import React from 'react';
+import { buildPlayerListView } from '../utils/playerList';
 
 const PlayerList = ({
   players,
@@ -6,7 +7,7 @@ const PlayerList = ({
   title = 'Players',
   emptyText = 'Waiting for players to join...',
 }) => {
-  const playerList = Array.isArray(players) ? players : [];
+  const playerList = buildPlayerListView(players);
 
   return (
     <div className={className}>
@@ -14,21 +15,19 @@ const PlayerList = ({
       {playerList.length ? (
         <div className="player-list">
           {playerList.map((player) => {
-            const displayName = player.username || 'Joining...';
-            const isOffline = player.username && player.isConnected === false;
             return (
               <div
                 key={player.id}
                 className={`player-chip${
                   player.isLeader ? ' player-chip--leader' : ''
-                }${isOffline ? ' player-chip--offline' : ''}`}
+                }${player.isOffline ? ' player-chip--offline' : ''}`}
               >
-                <span className="player-name">{displayName}</span>
+                <span className="player-name">{player.displayName}</span>
                 {player.isLeader ? (
                   <span className="player-leader">Leader</span>
                 ) : null}
-                {isOffline ? (
-                  <span className="player-status">Reconnecting</span>
+                {player.status ? (
+                  <span className="player-status">{player.status}</span>
                 ) : null}
               </div>
             );
