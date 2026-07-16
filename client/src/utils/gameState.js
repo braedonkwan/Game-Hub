@@ -10,9 +10,19 @@ export const GAME_STATES = {
   SELECT_GAME: 9,
 };
 
+const KNOWN_GAME_STATES = new Set(Object.values(GAME_STATES));
+
+const isObjectPayload = (payload) =>
+  payload && typeof payload === 'object' && !Array.isArray(payload);
+
+export const isKnownGameState = (state) => KNOWN_GAME_STATES.has(state);
+
 export const parseStateMessage = (message) => {
+  if (typeof message !== 'string') return null;
   const match = message.match(/^state (\d+)$/);
-  return match ? Number(match[1]) : null;
+  if (!match) return null;
+  const state = Number(match[1]);
+  return isKnownGameState(state) ? state : null;
 };
 
 const isPlaylistArrayPayload = (payload) =>
@@ -21,7 +31,7 @@ const isPlaylistArrayPayload = (payload) =>
   payload.every((item) => item?.name && item?.playlistID);
 
 export const isSelectionPayload = (payload) =>
-  payload && typeof payload === 'object' && payload['current track'];
+  isObjectPayload(payload) && isObjectPayload(payload['current track']);
 
 const isGameListArrayPayload = (payload) =>
   Array.isArray(payload) &&
@@ -30,43 +40,41 @@ const isGameListArrayPayload = (payload) =>
 
 export const isPlaylistPayload = (payload) =>
   (payload &&
-    typeof payload === 'object' &&
+    isObjectPayload(payload) &&
     payload.type === 'playlist_list' &&
     Array.isArray(payload.playlists)) ||
   isPlaylistArrayPayload(payload);
 
 export const isGameListPayload = (payload) =>
   (payload &&
-    typeof payload === 'object' &&
+    isObjectPayload(payload) &&
     payload.type === 'game_list' &&
     Array.isArray(payload.games)) ||
   isGameListArrayPayload(payload);
 
 export const isTriviaSetupPayload = (payload) =>
-  payload && typeof payload === 'object' && payload.type === 'trivia_setup';
+  isObjectPayload(payload) && payload.type === 'trivia_setup';
 
 export const isTriviaQuestionPayload = (payload) =>
-  payload && typeof payload === 'object' && payload.type === 'trivia_question';
+  isObjectPayload(payload) && payload.type === 'trivia_question';
 
 export const isScoreboardPayload = (payload) =>
-  payload &&
-  typeof payload === 'object' &&
+  isObjectPayload(payload) &&
   payload.type === 'scoreboard' &&
-  payload.scores &&
-  typeof payload.scores === 'object';
+  isObjectPayload(payload.scores);
 
 export const isPlayerListPayload = (payload) =>
-  payload &&
-  typeof payload === 'object' &&
+  isObjectPayload(payload) &&
   payload.type === 'player_list' &&
   Array.isArray(payload.players);
 
 export const isUsernameErrorPayload = (payload) =>
-  payload && typeof payload === 'object' && payload.type === 'username_error';
+  isObjectPayload(payload) &&
+  payload.type === 'username_error' &&
+  typeof payload.message === 'string';
 
 export const isSessionPayload = (payload) =>
-  payload &&
-  typeof payload === 'object' &&
+  isObjectPayload(payload) &&
   payload.type === 'session' &&
   typeof payload.username === 'string' &&
   typeof payload.resumeToken === 'string';

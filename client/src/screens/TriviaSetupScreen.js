@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import NumberField from '../components/NumberField';
 import Screen from '../components/Screen';
+import SetupSelect from '../components/SetupSelect';
+import SetupSummary from '../components/SetupSummary';
+import useSingleSendAction from '../hooks/useSingleSendAction';
 import { parseSetupNumber } from '../utils/setupNumber';
+import { buildSetupSummary } from '../utils/setupSummary';
 
 const TriviaSetupScreen = ({ config, onStart }) => {
   const defaultRounds = config?.maxRoundsDefault ?? 5;
@@ -37,7 +41,7 @@ const TriviaSetupScreen = ({ config, onStart }) => {
   const [category, setCategory] = useState(String(defaultCategory));
   const [difficulty, setDifficulty] = useState(String(defaultDifficulty));
   const [type, setType] = useState(String(defaultType));
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { isLocked, reset, run } = useSingleSendAction();
 
   useEffect(() => {
     setRounds(String(defaultRounds));
@@ -45,7 +49,7 @@ const TriviaSetupScreen = ({ config, onStart }) => {
     setCategory(String(defaultCategory));
     setDifficulty(String(defaultDifficulty));
     setType(String(defaultType));
-    setIsSubmitting(false);
+    reset();
   }, [
     defaultRounds,
     defaultGuessSeconds,
@@ -53,6 +57,7 @@ const TriviaSetupScreen = ({ config, onStart }) => {
     defaultDifficulty,
     defaultType,
     setupId,
+    reset,
   ]);
 
   const parsedRounds = parseSetupNumber(rounds, minRounds, maxRounds);
@@ -61,22 +66,40 @@ const TriviaSetupScreen = ({ config, onStart }) => {
     minGuessSeconds,
     maxGuessSeconds
   );
-  const canSubmit = Boolean(parsedRounds && parsedGuessSeconds) && !isSubmitting;
+  const categoryOptions = [
+    { value: 'any', label: 'Any category' },
+    ...categories.map((entry) => ({
+      value: String(entry.id),
+      label: entry.name,
+    })),
+  ];
+  const difficultySelectOptions = difficultyOptions.map((entry) => ({
+    value: entry.id,
+    label: entry.name,
+  }));
+  const typeSelectOptions = typeOptions.map((entry) => ({
+    value: entry.id,
+    label: entry.name,
+  }));
+  const canSubmit = Boolean(parsedRounds && parsedGuessSeconds) && !isLocked;
+  const setupSummary = buildSetupSummary({
+    rounds: parsedRounds,
+    guessSeconds: parsedGuessSeconds,
+    roundLabel: 'question',
+    timerLabel: 'answer',
+  });
 
   const handleSubmit = () => {
     if (!canSubmit) {
       return;
     }
-    const sent = onStart({
+    run(onStart, {
       maxRounds: parsedRounds,
       category,
       difficulty,
       type,
       guessSeconds: parsedGuessSeconds,
     });
-    if (sent) {
-      setIsSubmitting(true);
-    }
   };
 
   return (
@@ -84,6 +107,7 @@ const TriviaSetupScreen = ({ config, onStart }) => {
       <div className="title">Trivia setup</div>
       <div className="subtitle">Choose your topic, difficulty, and question count.</div>
       {errorMessage ? <div className="error-text">{errorMessage}</div> : null}
+      <SetupSummary text={setupSummary} />
       <NumberField
         label="Number of Questions"
         value={rounds}
@@ -99,43 +123,24 @@ const TriviaSetupScreen = ({ config, onStart }) => {
         unit="seconds"
         onChange={setGuessSeconds}
       />
-      <label className="muted-label">Category</label>
-      <select
+      <SetupSelect
+        label="Category"
         value={category}
-        onChange={(event) => setCategory(event.target.value)}
-        className="long-input"
-      >
-        <option value="any">Any category</option>
-        {categories.map((entry) => (
-          <option key={entry.id} value={String(entry.id)}>
-            {entry.name}
-          </option>
-        ))}
-      </select>
-      <label className="muted-label">Difficulty</label>
-      <select
+        options={categoryOptions}
+        onChange={setCategory}
+      />
+      <SetupSelect
+        label="Difficulty"
         value={difficulty}
-        onChange={(event) => setDifficulty(event.target.value)}
-        className="long-input"
-      >
-        {difficultyOptions.map((entry) => (
-          <option key={entry.id} value={entry.id}>
-            {entry.name}
-          </option>
-        ))}
-      </select>
-      <label className="muted-label">Question Type</label>
-      <select
+        options={difficultySelectOptions}
+        onChange={setDifficulty}
+      />
+      <SetupSelect
+        label="Question Type"
         value={type}
-        onChange={(event) => setType(event.target.value)}
-        className="long-input"
-      >
-        {typeOptions.map((entry) => (
-          <option key={entry.id} value={entry.id}>
-            {entry.name}
-          </option>
-        ))}
-      </select>
+        options={typeSelectOptions}
+        onChange={setType}
+      />
       <input
         type="button"
         value="Start Trivia"

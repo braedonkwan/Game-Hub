@@ -1,27 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import OptionCard from '../components/OptionCard';
 import RoundStatus from '../components/RoundStatus';
 import Screen from '../components/Screen';
-
-const shuffleSelections = (selections) => {
-  const options = Object.values(selections || {}).filter(
-    (selection) => selection?.name && selection?.artists
-  );
-  for (let i = options.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [options[i], options[j]] = [options[j], options[i]];
-  }
-  return options;
-};
-
-const selectionKey = (selection, index) =>
-  `${selection?.name || ''}-${selection?.artists || ''}-${index}`;
+import useOptionShortcuts from '../hooks/useOptionShortcuts';
+import {
+  buildSelectionOptions,
+  findSelectionOptionByKey,
+} from '../utils/selectionOptions';
 
 const SelectionScreen = ({ selections, onGuess }) => {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [submittedKey, setSubmittedKey] = useState('');
-  const shuffledSelections = useMemo(
-    () => shuffleSelections(selections),
+  const optionItems = useMemo(
+    () => buildSelectionOptions(selections),
     [selections]
   );
 
@@ -30,13 +21,20 @@ const SelectionScreen = ({ selections, onGuess }) => {
     setSubmittedKey('');
   }, [selections]);
 
-  const handleClick = (selection, key) => {
+  const submitGuess = useCallback((option) => {
     if (hasSubmitted) return;
-    const sent = onGuess(selection);
+    const sent = onGuess(option.selection);
     if (!sent) return;
     setHasSubmitted(true);
-    setSubmittedKey(key);
-  };
+    setSubmittedKey(option.key);
+  }, [hasSubmitted, onGuess]);
+
+  useOptionShortcuts({
+    disabled: hasSubmitted,
+    findOptionByKey: findSelectionOptionByKey,
+    items: optionItems,
+    onSelect: submitGuess,
+  });
 
   return (
     <Screen containerClassName="fade-in" contentClassName="answer-stage">
@@ -48,20 +46,19 @@ const SelectionScreen = ({ selections, onGuess }) => {
         serverSentAt={selections?.serverSentAt}
         maxScore={selections?.maxScore}
       />
+      <div className="shortcut-hint">Press A-D or 1-4 to guess.</div>
       <div className="grid">
-        {shuffledSelections.map((selection, index) => {
-          const key = selectionKey(selection, index);
-          return (
-            <OptionCard
-              key={key}
-              title={selection.name}
-              description={selection.artists}
-              submitted={submittedKey === key}
-              onClick={() => handleClick(selection, key)}
-              disabled={hasSubmitted}
-            />
-          );
-        })}
+        {optionItems.map((option) => (
+          <OptionCard
+            key={option.key}
+            eyebrow={option.label}
+            title={option.title}
+            description={option.description}
+            submitted={submittedKey === option.key}
+            onClick={() => submitGuess(option)}
+            disabled={hasSubmitted}
+          />
+        ))}
       </div>
     </Screen>
   );

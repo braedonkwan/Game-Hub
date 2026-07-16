@@ -1,12 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { getConnectionDetail } from '../utils/connection';
-
-const statusCopy = {
-  connecting: 'Connecting to the room...',
-  reconnecting: 'Connection lost. Reconnecting...',
-  offline: 'No room connection available.',
-  error: 'Connection issue. Retrying...',
-};
+import {
+  getConnectionActionLabel,
+  getConnectionDetail,
+  getConnectionTitle,
+  getReconnectProgressPercent,
+} from '../utils/connection';
 
 const ConnectionBanner = ({ status, reconnectDelayMs, onReconnect }) => {
   const [remainingMs, setRemainingMs] = useState(reconnectDelayMs || 0);
@@ -32,15 +30,39 @@ const ConnectionBanner = ({ status, reconnectDelayMs, onReconnect }) => {
   }
 
   const detail = getConnectionDetail(status, remainingMs);
+  const actionLabel = getConnectionActionLabel(status);
+  const reconnectProgress = getReconnectProgressPercent(
+    reconnectDelayMs,
+    remainingMs
+  );
 
   return (
-    <div className="connection-banner" role="status" aria-live="polite">
+    <div
+      className={`connection-banner connection-banner--${status}`}
+      role="status"
+      aria-live="polite"
+    >
       <div>
-        <strong>{statusCopy[status] || statusCopy.error}</strong>
+        <strong>{getConnectionTitle(status)}</strong>
         <span>{detail}</span>
+        {status === 'reconnecting' ? (
+          <span
+            className="connection-progress"
+            role="progressbar"
+            aria-label="Reconnect progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={reconnectProgress}
+          >
+            <span
+              className="connection-progress-fill"
+              style={{ width: `${reconnectProgress}%` }}
+            />
+          </span>
+        ) : null}
       </div>
       <button type="button" className="button button-small" onClick={onReconnect}>
-        Retry now
+        {actionLabel}
       </button>
     </div>
   );

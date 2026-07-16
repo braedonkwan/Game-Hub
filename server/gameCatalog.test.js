@@ -24,3 +24,14 @@ test('buildGameCatalog disables only Spotify with a reason', () => {
     assert.equal(spotify.unavailableReason, 'Spotify is connecting.');
     assert.equal(games.find((game) => game.id === TRIVIA_GAME_ID).available, true);
 });
+
+test('buildGameCatalog returns isolated nested payload data', () => {
+    const firstPayload = buildGameCatalog();
+    firstPayload[0].meta.players = 'Changed';
+    firstPayload[0].highlights.push('Changed');
+
+    const nextPayload = buildGameCatalog();
+
+    assert.notEqual(nextPayload[0].meta.players, 'Changed');
+    assert.equal(nextPayload[0].highlights.includes('Changed'), false);
+});

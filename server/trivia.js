@@ -29,6 +29,21 @@ const parseInteger = (value) => {
     return Number.isInteger(parsed) ? parsed : null;
 };
 
+const decodeUrlEncodedText = (value) => {
+    const text = String(value || '');
+    if (!text.includes('%')) {
+        return text;
+    }
+    try {
+        return decodeURIComponent(text);
+    } catch {
+        return text;
+    }
+};
+
+const cleanTriviaText = (value) =>
+    decodeHtml(decodeUrlEncodedText(value)).trim();
+
 let triviaCategoriesCache = [];
 let triviaCategoriesPromise = null;
 let triviaSetupId = 0;
@@ -163,12 +178,14 @@ const validateTriviaSetup = (cfg) => {
 };
 
 const toTriviaQuestion = (question) => ({
-    category: decodeHtml(question.category || ''),
+    category: cleanTriviaText(question.category),
     difficulty: String(question.difficulty || ''),
-    question: decodeHtml(question.question),
+    question: cleanTriviaText(question.question),
     type: String(question.type || TRIVIA_DEFAULT_TYPE),
-    correctAnswer: decodeHtml(question.correct_answer),
-    incorrectAnswers: question.incorrect_answers.map((answer) => decodeHtml(answer)),
+    correctAnswer: cleanTriviaText(question.correct_answer),
+    incorrectAnswers: Array.isArray(question.incorrect_answers)
+        ? question.incorrect_answers.map(cleanTriviaText)
+        : [],
 });
 
 const buildTriviaPayload = ({ trivia, round, total }) => {
@@ -200,6 +217,7 @@ async function loadTriviaQuestions(amount, { category, difficulty, type } = {}) 
         const resp = await axios.get('https://opentdb.com/api.php', {
             params: {
                 amount: count,
+                encode: 'url3986',
                 type: normalizedType,
                 ...(normalizedCategory ? { category: normalizedCategory } : {}),
                 ...(normalizedDifficulty ? { difficulty: normalizedDifficulty } : {}),

@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import OptionCard from '../components/OptionCard';
 import RoundStatus from '../components/RoundStatus';
 import Screen from '../components/Screen';
+import useOptionShortcuts from '../hooks/useOptionShortcuts';
+import { buildTriviaOptions, findTriviaOptionByKey } from '../utils/triviaOptions';
 
 const TriviaQuestionScreen = ({
   category,
@@ -19,7 +21,7 @@ const TriviaQuestionScreen = ({
 }) => {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [submittedAnswer, setSubmittedAnswer] = useState('');
-  const safeOptions = Array.isArray(options) ? options : [];
+  const optionItems = useMemo(() => buildTriviaOptions(options), [options]);
   const title = useMemo(
     () => (round && total ? `Question ${round} of ${total}` : 'Trivia'),
     [round, total]
@@ -33,13 +35,24 @@ const TriviaQuestionScreen = ({
     setSubmittedAnswer('');
   }, [question]);
 
-  const handleClick = (answer) => {
+  const submitAnswer = useCallback((answer) => {
     if (hasSubmitted) return;
     const sent = onAnswer(answer);
     if (!sent) return;
     setHasSubmitted(true);
     setSubmittedAnswer(answer);
-  };
+  }, [hasSubmitted, onAnswer]);
+  const submitShortcutAnswer = useCallback(
+    (option) => submitAnswer(option.title),
+    [submitAnswer]
+  );
+
+  useOptionShortcuts({
+    disabled: hasSubmitted,
+    findOptionByKey: findTriviaOptionByKey,
+    items: optionItems,
+    onSelect: submitShortcutAnswer,
+  });
 
   return (
     <Screen containerClassName="fade-in" contentClassName="answer-stage">
@@ -60,13 +73,15 @@ const TriviaQuestionScreen = ({
         </div>
       ) : null}
       <div className="text-container">{question}</div>
+      <div className="shortcut-hint">Press A-D or 1-4 to answer.</div>
       <div className="grid">
-        {safeOptions.map((option, index) => (
+        {optionItems.map((option, index) => (
           <OptionCard
-            key={`${option}-${index}`}
-            title={option}
-            submitted={submittedAnswer === option}
-            onClick={() => handleClick(option)}
+            key={`${option.title}-${index}`}
+            eyebrow={option.label}
+            title={option.title}
+            submitted={submittedAnswer === option.title}
+            onClick={() => submitAnswer(option.title)}
             disabled={hasSubmitted}
           />
         ))}

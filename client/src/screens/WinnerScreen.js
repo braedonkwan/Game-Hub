@@ -1,31 +1,27 @@
 import React, { useMemo } from 'react';
+import Fireworks from '../components/Fireworks';
 import Screen from '../components/Screen';
-import { getWinners } from '../utils/scoreboard';
+import ScoreboardTable from '../components/ScoreboardTable';
+import { buildScoreRows, getWinnerSummary } from '../utils/scoreboard';
 
-const WinnerScreen = ({ scoreboard }) => {
-  const fireworks = useMemo(() => Array.from({ length: 18 }), []);
-  const winners = useMemo(() => getWinners(scoreboard), [scoreboard]);
-  const hasWinner = winners.length > 0;
-  const winnerScore = hasWinner ? winners[0].score : 0;
-  const winnerNames = winners.map((entry) => entry.username).join(', ');
-
-  const winnerText = hasWinner
-    ? winners.length === 1
-      ? `The winner is ${winnerNames} with a score of ${winnerScore}`
-      : `Tie game: ${winnerNames} with ${winnerScore} points`
-    : 'Game over';
+const WinnerScreen = ({ scoreboard, currentUsername = '' }) => {
+  const scoreRows = useMemo(
+    () => buildScoreRows(scoreboard, currentUsername),
+    [scoreboard, currentUsername]
+  );
+  const winnerSummary = useMemo(() => getWinnerSummary(scoreboard), [scoreboard]);
 
   return (
     <>
-      {hasWinner && (
-        <div className="fireworks" aria-hidden="true">
-          {fireworks.map((_, index) => (
-            <span key={`firework-${index}`} className="firework" />
-          ))}
-        </div>
-      )}
+      {winnerSummary.hasWinner ? <Fireworks /> : null}
       <Screen containerClassName="winner-screen">
-        <div className="text-container">{winnerText}</div>
+        <div className="text-container">{winnerSummary.text}</div>
+        {scoreRows.length ? (
+          <div className="scoreboard winner-board">
+            <div className="title">Final leaderboard</div>
+            <ScoreboardTable rows={scoreRows} />
+          </div>
+        ) : null}
       </Screen>
     </>
   );

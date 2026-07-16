@@ -5,9 +5,9 @@ const { scoreRound } = require('./roundScoring');
 
 const WAITING = 5;
 const scoreboard = {
-    1: { username: 'Correct', score: 100 },
-    2: { username: 'Wrong', score: 200 },
-    3: { username: 'Still answering', score: 300 },
+    1: { username: 'Correct', score: 100, streak: 2 },
+    2: { username: 'Wrong', score: 200, streak: 3 },
+    3: { username: 'Still answering', score: 300, streak: 1 },
 };
 
 test('scoreRound scores only correct submitted trivia answers', () => {
@@ -24,10 +24,19 @@ test('scoreRound scores only correct submitted trivia answers', () => {
     });
 
     assert.deepEqual(result.deltas, { 1: 990, 2: 0, 3: 0 });
+    assert.deepEqual(result.outcomes, {
+        1: { answered: true, answerTimeMs: 100, correct: true },
+        2: { answered: true, answerTimeMs: 100, correct: false },
+        3: { answered: false, correct: false },
+    });
     assert.equal(result.scoreboard[1].score, 1090);
     assert.equal(result.scoreboard[2].score, 200);
     assert.equal(result.scoreboard[3].score, 300);
+    assert.equal(result.scoreboard[1].streak, 3);
+    assert.equal(result.scoreboard[2].streak, 0);
+    assert.equal(result.scoreboard[3].streak, 0);
     assert.equal(scoreboard[1].score, 100);
+    assert.equal(scoreboard[1].streak, 2);
 });
 
 test('scoreRound compares Spotify tracks by normalized selection key', () => {
@@ -49,7 +58,11 @@ test('scoreRound compares Spotify tracks by normalized selection key', () => {
     });
 
     assert.deepEqual(result.deltas, { 1: 1000 });
+    assert.deepEqual(result.outcomes, {
+        1: { answered: true, answerTimeMs: 0, correct: true },
+    });
     assert.equal(result.scoreboard[1].score, 1000);
+    assert.equal(result.scoreboard[1].streak, 1);
 });
 
 test('scoreRound leaves all scores unchanged without a round answer', () => {
@@ -63,5 +76,9 @@ test('scoreRound leaves all scores unchanged without a round answer', () => {
     });
 
     assert.deepEqual(result.deltas, { 1: 0 });
+    assert.deepEqual(result.outcomes, {
+        1: { answered: true, answerTimeMs: 0, correct: false },
+    });
     assert.equal(result.scoreboard[1].score, 25);
+    assert.equal(result.scoreboard[1].streak, 0);
 });

@@ -34,6 +34,12 @@ const GAME_CATALOG = [
     },
 ];
 
+const cloneGameCatalogEntry = (game) => ({
+    ...game,
+    highlights: Array.isArray(game.highlights) ? [...game.highlights] : [],
+    meta: game.meta ? { ...game.meta } : {},
+});
+
 const buildGameCatalog = ({
     spotifyAvailable = true,
     spotifyUnavailableReason = '',
@@ -41,12 +47,12 @@ const buildGameCatalog = ({
     GAME_CATALOG.map((game) =>
         game.id === SPOTIFY_GAME_ID && !spotifyAvailable
             ? {
-                ...game,
+                ...cloneGameCatalogEntry(game),
                 available: false,
                 unavailableReason:
                     spotifyUnavailableReason || 'Spotify is unavailable.',
             }
-            : { ...game, available: true }
+            : { ...cloneGameCatalogEntry(game), available: true }
     );
 
 module.exports = {

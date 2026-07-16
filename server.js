@@ -12,6 +12,18 @@ const {
     SPOTIFY_CONFIGURED,
     SPOTIFY_DISABLED,
 } = require('./server/config');
+const { applyAnswerSubmission } = require('./server/answerSubmission');
+const {
+    cancelReconnectCleanup,
+    createClientRecord,
+    markClientDisconnected,
+    removeDisconnectedClient,
+} = require('./server/clientLifecycle');
+const {
+    applyResumeHandoff,
+    findUsernameConflict,
+    getUsernameConflictMessage,
+} = require('./server/clientResume');
 const {
     GAME_STATES,
     REFRESH_FREQUENCY_MINUTES,
@@ -34,6 +46,11 @@ const {
     SPOTIFY_GAME_ID,
     TRIVIA_GAME_ID,
 } = require('./server/gameCatalog');
+const {
+    resetActiveGameData: resetActiveGameDataState,
+    resetRoomState,
+    resetRoundState: resetRoundStateState,
+} = require('./server/gameLifecycle');
 const { applySpotifySetup, applyTriviaSetup } = require('./server/gameSetup');
 const { buildHealthPayload } = require('./server/health');
 const {
@@ -47,11 +64,18 @@ const {
     buildSelectionPayload,
 } = require('./server/roundPayload');
 const { createResumeToken, isValidResumeToken } = require('./server/session');
+const { createTaskQueue } = require('./server/taskQueue');
 const {
     buildPlayerListPayload: createPlayerListPayload,
     getActiveLeader: findActiveLeader,
     getLeaderCandidates: findLeaderCandidates,
 } = require('./server/playerRoster');
+const {
+    PLAY_AGAIN_ACTIONS,
+    canSetupAgain,
+    canStartNewGame,
+    isPostGameClient,
+} = require('./server/playAgainFlow');
 const { songSelection } = require('./server/spotifyGame');
 const {
     buildSpotifySetupPayload,
@@ -65,7 +89,6 @@ const {
     validateTriviaSetup,
 } = require('./server/trivia');
 const {
-    isSameUsername,
     normalizeUsername,
     parseJson,
     parseUsernamePayload,
@@ -76,6 +99,10 @@ const {
     sendJson,
     updateClientState,
 } = require('./server/wsTransport');
+const {
+    attachSocketHeartbeat,
+    startHeartbeat,
+} = require('./server/wsHeartbeat');
 
 const {
     SET_USERNAME,
@@ -117,17 +144,7 @@ app.get('/game/*', (_req, res) => {
 });
 
 // keep-alive heartbeat to prevent idle disconnects
-const heartbeatInterval = setInterval(() => {
-    wss.clients.forEach((ws) => {
-        if (ws.isAlive === false) {
-            return ws.terminate();
-        }
-        ws.isAlive = false;
-        ws.ping();
-    });
-}, CONNECTION_HEARTBEAT_MS);
-
-wss.on('close', () => clearInterval(heartbeatInterval));
+startHeartbeat(wss, CONNECTION_HEARTBEAT_MS);
 
 const clients = new Map();
 let clientIDCounter = 0;
@@ -144,6 +161,7 @@ const game = {
     phase: SET_USERNAME,
     trivia: createTriviaState(),
     lastRoundDeltas: null,
+    lastRoundOutcomes: null,
 };
 
 const isActiveClient = (client) => !!client && isOpen(client.ws);
@@ -229,6 +247,7 @@ const buildScoreboardPayload = () =>
     createScoreboardPayload({
         activeGameId: game.activeGameId,
         lastRoundDeltas: game.lastRoundDeltas,
+        lastRoundOutcomes: game.lastRoundOutcomes,
         maxRounds: game.maxRounds,
         round: game.rounds,
         scoreboard: game.scoreboard,
@@ -259,6 +278,7 @@ const startSelectionPhase = (predicate, payload, { resetScores = false } = {}) =
     game.answerDeadlineAt = game.startTime + game.answerTimeoutMs;
     game.phase = SELECT_ANSWER;
     game.lastRoundDeltas = null;
+    game.lastRoundOutcomes = null;
     const roundPayload = addRoundMetadata(payload, getRoundInfo());
     setCurrentSelectionPayload(roundPayload);
     broadcast(predicate, (client, id) => {
@@ -337,19 +357,19 @@ const ensureLeaderAssigned = async () => {
 };
 
 const scheduleDisconnectedClientCleanup = (clientID, client) => {
-    if (client.reconnectCleanup) {
-        clearTimeout(client.reconnectCleanup);
-    }
-    client.disconnectedAt = Date.now();
+    cancelReconnectCleanup(client);
+    markClientDisconnected(client);
     client.reconnectCleanup = setTimeout(() => {
-        if (clients.get(clientID) !== client) {
+        const result = removeDisconnectedClient({
+            clients,
+            clientID,
+            client,
+            scoreboard: game.scoreboard,
+        });
+        if (!result.removed) {
             return;
         }
-        clients.delete(clientID);
-        if (game.scoreboard[clientID]) {
-            delete game.scoreboard[clientID];
-        }
-        if (clients.size === 0) {
+        if (result.roomEmpty) {
             clientIDCounter = 0;
             resetGameState();
             return;
@@ -448,6 +468,7 @@ function scoreCurrentRound() {
     });
     game.scoreboard = result.scoreboard;
     game.lastRoundDeltas = result.deltas;
+    game.lastRoundOutcomes = result.outcomes;
 }
 
 function finalizeCurrentRound() {
@@ -567,30 +588,15 @@ async function startTriviaGame(predicate, { resetScores = false } = {}) {
 }
 
 function resetRoundState() {
-    clearRoundTimeout();
-    game.rounds = 1;
-    game.scoreboard = {};
-    game.startTime = 0;
-    game.answerDeadlineAt = 0;
-    game.trivia.correctAnswer = '';
-    game.trivia.currentPayload = null;
-    game.trivia.index = 0;
-    game.lastRoundDeltas = null;
+    resetRoundStateState(game, clearRoundTimeout);
 }
 
 function resetGameState() {
-    resetActiveGameData();
-    game.activeGameId = null;
-    game.phase = SET_USERNAME;
+    resetRoomState(game, clearRoundTimeout);
 }
 
 function resetActiveGameData() {
-    resetRoundState();
-    game.maxRounds = 0;
-    game.answerTimeoutMs = ROUND_ANSWER_TIMEOUT_MS;
-    game.playlist = [];
-    game.selections = null;
-    game.trivia = createTriviaState();
+    resetActiveGameDataState(game, clearRoundTimeout);
 }
 
 async function returnRoomToGameSelect() {
@@ -638,42 +644,24 @@ async function handleSetUsername(client, text) {
     if (!trimmed) {
         return;
     }
-    const existingEntry = [...clients.entries()].find(
-        ([id, entry]) => id !== client.id && isSameUsername(entry.username, trimmed)
-    );
+    const existingEntry = findUsernameConflict(clients, client.id, trimmed);
     if (existingEntry) {
         const [existingId, existingClient] = existingEntry;
         if (!isValidResumeToken(existingClient.resumeToken, resumeToken)) {
             sendUsernameError(
                 client,
-                isActiveClient(existingClient)
-                    ? 'That name is already in use.'
-                    : 'That name is reserved while the player reconnects.'
+                getUsernameConflictMessage(existingClient, isActiveClient)
             );
             return;
         }
-        if (existingClient.reconnectCleanup) {
-            clearTimeout(existingClient.reconnectCleanup);
-            existingClient.reconnectCleanup = null;
-        }
-        if (existingClient.gameleader) {
-            existingClient.gameleader = false;
-            client.gameleader = true;
-        }
-        if (game.scoreboard[existingId]) {
-            game.scoreboard[client.id] = {
-                ...game.scoreboard[existingId],
-                username: trimmed,
-            };
-            delete game.scoreboard[existingId];
-        }
-        client.state = existingClient.state;
-        client.answer = existingClient.answer;
-        client.answerTime = existingClient.answerTime;
-        if (isOpen(existingClient.ws)) {
-            existingClient.ws.close(1000, 'Reconnected');
-        }
-        clients.delete(existingId);
+        applyResumeHandoff({
+            clients,
+            existingId,
+            existingClient,
+            newClient: client,
+            username: trimmed,
+            scoreboard: game.scoreboard,
+        });
     }
     client.username = trimmed;
     client.resumeToken = createResumeToken();
@@ -795,17 +783,17 @@ function handleSelectAnswer(client, text) {
         finalizeCurrentRound();
         return;
     }
-    const elapsed = game.startTime ? answeredAt - game.startTime : 0;
-    client.answerTime = elapsed;
-    if (game.activeGameId === TRIVIA_GAME_ID) {
-        if (payload.type !== 'trivia_answer') {
-            return;
-        }
-        client.answer = String(payload.answer || '');
-    } else {
-        client.answer = payload;
+    const accepted = applyAnswerSubmission({
+        activeGameId: game.activeGameId,
+        answeredAt,
+        client,
+        payload,
+        startedAt: game.startTime,
+        waitingState: WAITING,
+    });
+    if (!accepted) {
+        return;
     }
-    client.state = WAITING;
 
     if (canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)) {
         finalizeCurrentRound();
@@ -821,16 +809,13 @@ async function handleScoreboard(client, text) {
 }
 
 async function handlePlayAgain(client, text) {
-    if (text === 'setup game') {
-        if (!client.gameleader) {
-            return;
-        }
-        if (![SPOTIFY_GAME_ID, TRIVIA_GAME_ID].includes(game.activeGameId)) {
+    if (text === PLAY_AGAIN_ACTIONS.SETUP_GAME) {
+        if (!canSetupAgain(client, game.activeGameId)) {
             return;
         }
         resetActiveGameData();
         game.phase = SETUP;
-        broadcast((c) => c.state === GAME_OVER || c.state === PLAY_AGAIN, (c) => {
+        broadcast(isPostGameClient, (c) => {
             if (!c.gameleader) {
                 updateClientState(c, READY);
             }
@@ -844,23 +829,23 @@ async function handlePlayAgain(client, text) {
         }
         return;
     }
-    if (text === 'play again') {
+    if (text === PLAY_AGAIN_ACTIONS.PLAY_AGAIN) {
         resetRoundState();
         if (game.activeGameId === TRIVIA_GAME_ID) {
             game.rounds = 1;
             await startTriviaGame(
-                (c) => c.state === GAME_OVER || c.state === PLAY_AGAIN,
+                isPostGameClient,
                 { resetScores: true }
             );
             return;
         }
-        await advanceTrackAndStart((c) => c.state === GAME_OVER || c.state === PLAY_AGAIN, {
+        await advanceTrackAndStart(isPostGameClient, {
             resetScores: true,
         });
         return;
     }
-    if (text === 'new game') {
-        if (!client.gameleader) {
+    if (text === PLAY_AGAIN_ACTIONS.NEW_GAME) {
+        if (!canStartNewGame(client)) {
             return;
         }
         await returnRoomToGameSelect();
@@ -869,27 +854,13 @@ async function handlePlayAgain(client, text) {
 
 // on client connection
 wss.on('connection', (ws, req) => {
-    ws.isAlive = true;
-    ws.on('pong', () => {
-        ws.isAlive = true;
-    });
+    attachSocketHeartbeat(ws);
     const remoteAddress = req?.socket?.remoteAddress || 'unknown';
     const userAgent = req?.headers?.['user-agent'] || 'unknown';
     const forwardedFor = req?.headers?.['x-forwarded-for'] || '';
 
     const clientID = clientIDCounter++;
-    clients.set(clientID, {
-        id: clientID,
-        ws,
-        state: SET_USERNAME,
-        username: '',
-        resumeToken: '',
-        answer: null,
-        answerTime: 0,
-        gameleader: false,
-        disconnectedAt: null,
-        reconnectCleanup: null,
-    });
+    clients.set(clientID, createClientRecord({ id: clientID, ws }));
     console.log(
         `[ws] Connected (id: ${clientID}). Waiting for username. IP=${remoteAddress} UA=${userAgent} ${forwardedFor ? `XFF=${forwardedFor}` : ''}`
     );
@@ -899,14 +870,17 @@ wss.on('connection', (ws, req) => {
         console.error(`[ws] Error (id: ${clientID}).`, err?.message || err);
     });
 
-    ws.on('message', async (msg) => {
-        const client = clients.get(clientID);
-        if (!client) {
-            return;
-        }
-        const text = msg.toString();
+    const enqueueMessage = createTaskQueue((err) => {
+        console.error('[ERROR] Failed to handle client message.', err?.message || err);
+    });
 
-        try {
+    ws.on('message', (msg) => {
+        const text = msg.toString();
+        enqueueMessage(async () => {
+            const client = clients.get(clientID);
+            if (!client || client.ws !== ws) {
+                return;
+            }
             switch (client.state) {
                 case SET_USERNAME:
                     await handleSetUsername(client, text);
@@ -938,9 +912,7 @@ wss.on('connection', (ws, req) => {
                 default:
                     return;
             }
-        } catch (err) {
-            console.error('[ERROR] Failed to handle client message.', err?.message || err);
-        }
+        });
     });
 
     // on client close

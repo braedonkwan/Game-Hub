@@ -96,6 +96,7 @@ test('loadTriviaQuestions requests configured question type', async () => {
         assert.equal(calls[0].url, 'https://opentdb.com/api.php');
         assert.deepEqual(calls[0].options.params, {
             amount: 1,
+            encode: 'url3986',
             type: 'boolean',
             category: 9,
             difficulty: 'easy',
@@ -110,6 +111,44 @@ test('loadTriviaQuestions requests configured question type', async () => {
                 incorrectAnswers: ['False'],
             },
         ]);
+    } finally {
+        axios.get = originalGet;
+    }
+});
+
+test('loadTriviaQuestions cleans encoded trivia text', async () => {
+    const originalGet = axios.get;
+    axios.get = async () => ({
+        data: {
+            response_code: 0,
+            results: [
+                {
+                    category: 'Entertainment: Film',
+                    difficulty: 'medium',
+                    type: 'multiple',
+                    question: 'Who%20said%20%22I%27ll%20be%20back%22%3F',
+                    correct_answer: 'Arnold%20%26%20Co.',
+                    incorrect_answers: [
+                        'Someone%20else',
+                        'No%20one',
+                        'Cafe%20owner%21',
+                    ],
+                },
+            ],
+        },
+    });
+
+    try {
+        const questions = await loadTriviaQuestions(1);
+
+        assert.deepEqual(questions[0], {
+            category: 'Entertainment: Film',
+            difficulty: 'medium',
+            question: 'Who said "I\'ll be back"?',
+            type: 'multiple',
+            correctAnswer: 'Arnold & Co.',
+            incorrectAnswers: ['Someone else', 'No one', 'Cafe owner!'],
+        });
     } finally {
         axios.get = originalGet;
     }

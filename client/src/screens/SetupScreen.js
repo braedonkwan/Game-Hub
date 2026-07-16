@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import NumberField from '../components/NumberField';
 import Screen from '../components/Screen';
+import SetupSelect from '../components/SetupSelect';
+import SetupSummary from '../components/SetupSummary';
+import useSingleSendAction from '../hooks/useSingleSendAction';
 import { parseSetupNumber } from '../utils/setupNumber';
+import { buildSetupSummary } from '../utils/setupSummary';
 
 const SetupScreen = ({ playlists, config, onStart, error }) => {
   const defaultRounds = config?.maxRoundsDefault ?? 5;
@@ -15,7 +19,7 @@ const SetupScreen = ({ playlists, config, onStart, error }) => {
   const [selectedPlaylist, setSelectedPlaylist] = useState(
     playlists[0]?.playlistID || ''
   );
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { isLocked, reset, run } = useSingleSendAction();
   const hasPlaylists = playlists.length > 0;
 
   useEffect(() => {
@@ -26,8 +30,8 @@ const SetupScreen = ({ playlists, config, onStart, error }) => {
       );
       return exists ? current : firstPlaylist;
     });
-    setIsSubmitting(false);
-  }, [playlists, error]);
+    reset();
+  }, [playlists, error, reset]);
 
   useEffect(() => {
     setRounds(String(defaultRounds));
@@ -46,20 +50,26 @@ const SetupScreen = ({ playlists, config, onStart, error }) => {
   const canSubmit =
     Boolean(parsedRounds && parsedGuessSeconds && selectedPlaylist) &&
     hasPlaylists &&
-    !isSubmitting;
+    !isLocked;
+  const setupSummary = buildSetupSummary({
+    rounds: parsedRounds,
+    guessSeconds: parsedGuessSeconds,
+    timerLabel: 'guess',
+  });
+  const playlistOptions = playlists.map((playlist) => ({
+    value: playlist.playlistID,
+    label: playlist.name,
+  }));
 
   const handleSubmit = () => {
     if (!canSubmit) {
       return;
     }
-    const sent = onStart({
+    run(onStart, {
       maxRounds: parsedRounds,
       playlistId: selectedPlaylist,
       guessSeconds: parsedGuessSeconds,
     });
-    if (sent) {
-      setIsSubmitting(true);
-    }
   };
 
   return (
@@ -70,6 +80,7 @@ const SetupScreen = ({ playlists, config, onStart, error }) => {
       {!hasPlaylists ? (
         <div className="error-text">No playlists are available yet.</div>
       ) : null}
+      <SetupSummary text={setupSummary} />
       <NumberField
         label="Number of Rounds"
         value={rounds}
@@ -85,19 +96,13 @@ const SetupScreen = ({ playlists, config, onStart, error }) => {
         unit="seconds"
         onChange={setGuessSeconds}
       />
-      <label className="muted-label">Select Playlist</label>
-      <select
+      <SetupSelect
+        label="Select Playlist"
         value={selectedPlaylist}
-        onChange={(event) => setSelectedPlaylist(event.target.value)}
-        className="long-input"
+        options={playlistOptions}
+        onChange={setSelectedPlaylist}
         disabled={!hasPlaylists}
-      >
-        {playlists.map((playlist) => (
-          <option key={playlist.playlistID} value={playlist.playlistID}>
-            {playlist.name}
-          </option>
-        ))}
-      </select>
+      />
       <input
         type="button"
         value="Start Game"

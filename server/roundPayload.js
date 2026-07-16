@@ -36,6 +36,7 @@ const buildSelectionPayload = ({ activeGameId, trivia, selections, roundInfo }) 
 const buildScoreboardPayload = ({
     activeGameId,
     lastRoundDeltas,
+    lastRoundOutcomes,
     maxRounds,
     round,
     scoreboard,
@@ -49,6 +50,10 @@ const buildScoreboardPayload = ({
             {
                 ...entry,
                 delta: lastRoundDeltas?.[id] ?? 0,
+                roundOutcome: lastRoundOutcomes?.[id] ?? {
+                    answered: false,
+                    correct: false,
+                },
             },
         ])
     ),

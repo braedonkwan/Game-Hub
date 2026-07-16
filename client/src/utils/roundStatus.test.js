@@ -26,6 +26,7 @@ describe('round status view model', () => {
       label: '1.0s elapsed',
       progressPercent: null,
       score: 968,
+      urgencyLevel: 'elapsed',
     });
   });
 
@@ -43,6 +44,25 @@ describe('round status view model', () => {
       label: '7s left',
       progressPercent: 70,
       score: 945,
+      urgencyLevel: 'normal',
+    });
+  });
+
+  test('marks timer as urgent near the deadline', () => {
+    expect(
+      buildRoundTimer({
+        answerDeadlineAt: 11000,
+        roundStartedAt: 1000,
+        serverSentAt: 2000,
+        maxScore: 1000,
+        now: 8000,
+        receivedAt: 3000,
+      })
+    ).toEqual({
+      label: '4s left',
+      progressPercent: 40,
+      score: 923,
+      urgencyLevel: 'warning',
     });
   });
 
@@ -60,6 +80,7 @@ describe('round status view model', () => {
       label: "Time's up",
       progressPercent: 0,
       score: 937,
+      urgencyLevel: 'expired',
     });
   });
 });

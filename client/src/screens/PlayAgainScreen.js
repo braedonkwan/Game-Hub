@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import Screen from '../components/Screen';
+import useSingleSendAction from '../hooks/useSingleSendAction';
 
 const PlayAgainScreen = ({ onPlayAgain, onSetupGame, onNewGame }) => {
-  const [isButtonDisabled, setIsButtonDisabled] = useState(false);
+  const { isLocked, run } = useSingleSendAction();
 
   const actions = [
     { label: 'Play Again', onClick: onPlayAgain },
@@ -11,10 +12,7 @@ const PlayAgainScreen = ({ onPlayAgain, onSetupGame, onNewGame }) => {
   ];
 
   const handleAction = (action) => () => {
-    const sent = action();
-    if (sent) {
-      setIsButtonDisabled(true);
-    }
+    run(action);
   };
 
   return (
@@ -28,7 +26,7 @@ const PlayAgainScreen = ({ onPlayAgain, onSetupGame, onNewGame }) => {
             type="button"
             value={action.label}
             onClick={handleAction(action.onClick)}
-            disabled={isButtonDisabled}
+            disabled={isLocked}
             className="button action-button"
           />
         ))}

@@ -1,25 +1,34 @@
 const DEFAULT_WS_PORT = '8888';
 const GAME_PATH_PREFIX = '/game';
 
-const getWebSocketUrl = () => {
-  const envUrl = process.env.REACT_APP_WEBSOCKET_URL;
-  if (envUrl) {
-    return envUrl;
+export const buildWebSocketUrl = ({
+  envUrl = '',
+  location,
+} = {}) => {
+  const configuredUrl = String(envUrl || '').trim();
+  if (configuredUrl) {
+    return configuredUrl;
   }
 
-  if (typeof window === 'undefined') {
+  if (!location) {
     return '';
   }
 
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const hostname = window.location.hostname;
-  const pathname = window.location.pathname || '';
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  const hostname = location.hostname;
+  const pathname = location.pathname || '';
 
   const shouldUseLocationPort = pathname.startsWith(GAME_PATH_PREFIX);
-  const port = shouldUseLocationPort ? window.location.port : DEFAULT_WS_PORT;
+  const port = shouldUseLocationPort ? location.port : DEFAULT_WS_PORT;
   const portSegment = port ? `:${port}` : '';
 
   return `${protocol}://${hostname}${portSegment}`;
 };
+
+const getWebSocketUrl = () =>
+  buildWebSocketUrl({
+    envUrl: process.env.REACT_APP_WEBSOCKET_URL,
+    location: typeof window === 'undefined' ? null : window.location,
+  });
 
 export default getWebSocketUrl;

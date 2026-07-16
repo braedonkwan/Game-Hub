@@ -51,7 +51,9 @@ const RoundStatus = ({
       ) : null}
       {timer ? (
         <>
-          <span className="round-status-meter">
+          <span
+            className={`round-status-meter round-status-meter--${timer.urgencyLevel}`}
+          >
             {timer.progressPercent !== null ? (
               <span
                 className="round-status-meter-fill"

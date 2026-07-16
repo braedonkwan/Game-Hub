@@ -1,4 +1,5 @@
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const MAX_USERNAME_LENGTH = 24;
 
 const parseJson = (value) => {
     try {
@@ -8,7 +9,8 @@ const parseJson = (value) => {
     }
 };
 
-const normalizeUsername = (value) => String(value || '').trim();
+const normalizeUsername = (value) =>
+    String(value || '').trim().slice(0, MAX_USERNAME_LENGTH);
 
 const parseUsernamePayload = (value) => {
     const payload = parseJson(value);
@@ -31,23 +33,47 @@ const isSameUsername = (left, right) => {
     return leftName.toLowerCase() === rightName.toLowerCase();
 };
 
+const HTML_ENTITY_MAP = {
+    amp: '&',
+    apos: "'",
+    copy: '(c)',
+    eacute: 'e',
+    gt: '>',
+    hellip: '...',
+    ldquo: '"',
+    lsquo: "'",
+    lt: '<',
+    mdash: '-',
+    ndash: '-',
+    nbsp: ' ',
+    quot: '"',
+    rdquo: '"',
+    reg: '(r)',
+    rsquo: "'",
+    shy: '',
+    trade: '(tm)',
+};
+
 const decodeHtml = (value) => {
     if (!value) return '';
-    return value
-        .replace(/&#x([0-9a-fA-F]+);/g, (_match, hex) =>
-            String.fromCharCode(parseInt(hex, 16))
-        )
-        .replace(/&#(\d+);/g, (_match, num) =>
-            String.fromCharCode(parseInt(num, 10))
-        )
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'")
-        .replace(/&#039;/g, "'")
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&ldquo;|&rdquo;/g, '"')
-        .replace(/&hellip;/g, '...');
+    return String(value).replace(
+        /&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]+);/g,
+        (match, entity) => {
+            if (entity.startsWith('#x')) {
+                const codePoint = parseInt(entity.slice(2), 16);
+                return Number.isFinite(codePoint) && codePoint <= 0x10ffff
+                    ? String.fromCodePoint(codePoint)
+                    : match;
+            }
+            if (entity.startsWith('#')) {
+                const codePoint = parseInt(entity.slice(1), 10);
+                return Number.isFinite(codePoint) && codePoint <= 0x10ffff
+                    ? String.fromCodePoint(codePoint)
+                    : match;
+            }
+            return HTML_ENTITY_MAP[entity.toLowerCase()] ?? match;
+        }
+    );
 };
 
 const shuffleArray = (list) => {
@@ -62,6 +88,7 @@ const shuffleArray = (list) => {
 module.exports = {
     decodeHtml,
     isSameUsername,
+    MAX_USERNAME_LENGTH,
     normalizeUsername,
     parseJson,
     parseUsernamePayload,

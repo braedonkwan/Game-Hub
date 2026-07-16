@@ -72,6 +72,10 @@ test('buildScoreboardPayload includes deltas and round answer', () => {
         buildScoreboardPayload({
             activeGameId: TRIVIA_GAME_ID,
             lastRoundDeltas: { 1: 100 },
+            lastRoundOutcomes: {
+                1: { answered: true, answerTimeMs: 720, correct: true },
+                2: { answered: true, answerTimeMs: 1450, correct: false },
+            },
             maxRounds: 3,
             round: 2,
             scoreboard: {
@@ -83,8 +87,26 @@ test('buildScoreboardPayload includes deltas and round answer', () => {
         {
             type: 'scoreboard',
             scores: {
-                1: { username: 'A', score: 500, delta: 100 },
-                2: { username: 'B', score: 200, delta: 0 },
+                1: {
+                    username: 'A',
+                    score: 500,
+                    delta: 100,
+                    roundOutcome: {
+                        answered: true,
+                        answerTimeMs: 720,
+                        correct: true,
+                    },
+                },
+                2: {
+                    username: 'B',
+                    score: 200,
+                    delta: 0,
+                    roundOutcome: {
+                        answered: true,
+                        answerTimeMs: 1450,
+                        correct: false,
+                    },
+                },
             },
             round: 2,
             total: 3,
@@ -92,4 +114,21 @@ test('buildScoreboardPayload includes deltas and round answer', () => {
             roundResult: { answer: 'True' },
         }
     );
+});
+
+test('buildScoreboardPayload defaults missing round outcomes', () => {
+    const payload = buildScoreboardPayload({
+        activeGameId: TRIVIA_GAME_ID,
+        maxRounds: 1,
+        round: 1,
+        scoreboard: {
+            1: { username: 'A', score: 0 },
+        },
+        trivia: { correctAnswer: 'True' },
+    });
+
+    assert.deepEqual(payload.scores[1].roundOutcome, {
+        answered: false,
+        correct: false,
+    });
 });

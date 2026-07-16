@@ -1,25 +1,34 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import RoundResult from '../components/RoundResult';
+import ScoreboardTable from '../components/ScoreboardTable';
 import Screen from '../components/Screen';
+import useSingleSendAction from '../hooks/useSingleSendAction';
 import { buildScoreRows } from '../utils/scoreboard';
 
-const ScoreboardScreen = ({ scoreboard, round, total, roundResult, onReady }) => {
-  const [isButtonDisabled, setIsButtonDisabled] = useState(false);
+const ScoreboardScreen = ({
+  scoreboard,
+  round,
+  total,
+  roundResult,
+  currentUsername = '',
+  onReady,
+}) => {
+  const { isLocked, run } = useSingleSendAction();
   const scoreRows = useMemo(
-    () => buildScoreRows(scoreboard),
-    [scoreboard]
+    () => buildScoreRows(scoreboard, currentUsername),
+    [scoreboard, currentUsername]
   );
   const hasProgress = Number.isFinite(round) && Number.isFinite(total) && total > 0;
 
   const handleReady = () => {
-    const sent = onReady();
-    if (sent) {
-      setIsButtonDisabled(true);
-    }
+    run(onReady);
   };
 
   return (
-    <Screen>
+    <Screen
+      containerClassName="scoreboard-container"
+      contentClassName="scoreboard-screen vertical fade-in"
+    >
       <div className="scoreboard">
         <div className="title slide-up">Scoreboard</div>
         <div className="subtitle">
@@ -29,37 +38,7 @@ const ScoreboardScreen = ({ scoreboard, round, total, roundResult, onReady }) =>
         </div>
         <RoundResult result={roundResult} />
         {scoreRows.length ? (
-          <table className="scoreboard-table">
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>Score</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scoreRows.map((entry) => (
-                <tr
-                  key={entry.key}
-                  className={`scoreboard-row${
-                    entry.isLeader ? ' scoreboard-row--leader' : ''
-                  }`}
-                >
-                  <td>
-                    <span className="scoreboard-rank">{entry.rank}</span>
-                    <span className="scoreboard-name">{entry.username}</span>
-                    <span
-                      className={`scoreboard-delta${
-                        entry.delta ? ' scoreboard-delta--points' : ''
-                      }`}
-                    >
-                      {entry.deltaLabel}
-                    </span>
-                  </td>
-                  <td className="scoreboard-score">{entry.score}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ScoreboardTable rows={scoreRows} />
         ) : (
           <div className="hub-empty">No scores yet.</div>
         )}
@@ -68,7 +47,7 @@ const ScoreboardScreen = ({ scoreboard, round, total, roundResult, onReady }) =>
         type="button"
         value="Ready"
         onClick={handleReady}
-        disabled={isButtonDisabled}
+        disabled={isLocked}
         className="button"
       />
     </Screen>
