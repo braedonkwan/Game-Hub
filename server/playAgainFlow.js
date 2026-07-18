@@ -1,5 +1,5 @@
 const { GAME_STATES } = require('./constants');
-const { SPOTIFY_GAME_ID, TRIVIA_GAME_ID } = require('./gameCatalog');
+const { COLOURS_GAME_ID, SPOTIFY_GAME_ID, TRIVIA_GAME_ID } = require('./gameCatalog');
 
 const PLAY_AGAIN_ACTIONS = {
     PLAY_AGAIN: 'play again',
@@ -15,7 +15,7 @@ const POST_GAME_STATES = new Set([
 const isPostGameClient = (client) => POST_GAME_STATES.has(client?.state);
 
 const isReplayableGame = (gameId) =>
-    [SPOTIFY_GAME_ID, TRIVIA_GAME_ID].includes(gameId);
+    [COLOURS_GAME_ID, SPOTIFY_GAME_ID, TRIVIA_GAME_ID].includes(gameId);
 
 const canSetupAgain = (client, gameId) =>
     Boolean(client?.gameleader) && isReplayableGame(gameId);

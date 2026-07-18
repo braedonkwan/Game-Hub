@@ -58,6 +58,14 @@ export const isTriviaSetupPayload = (payload) =>
 export const isTriviaQuestionPayload = (payload) =>
   isObjectPayload(payload) && payload.type === 'trivia_question';
 
+export const isColoursSetupPayload = (payload) =>
+  isObjectPayload(payload) && payload.type === 'colours_setup';
+
+export const isColoursRoundPayload = (payload) =>
+  isObjectPayload(payload) &&
+  payload.type === 'colours_round' &&
+  Array.isArray(payload.colours);
+
 export const isScoreboardPayload = (payload) =>
   isObjectPayload(payload) &&
   payload.type === 'scoreboard' &&

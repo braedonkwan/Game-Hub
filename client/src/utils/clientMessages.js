@@ -17,6 +17,8 @@ export const buildStartGameMessage = ({
   difficulty,
   type,
   guessSeconds,
+  startingCash,
+  betSeconds,
 }) => {
   const payload = { 'max rounds': maxRounds };
   if (playlistId) payload['playlist ID'] = playlistId;
@@ -24,6 +26,8 @@ export const buildStartGameMessage = ({
   if (category) payload.category = category;
   if (difficulty) payload.difficulty = difficulty;
   if (type) payload.type = type;
+  if (startingCash) payload.startingCash = startingCash;
+  if (betSeconds) payload.betSeconds = betSeconds;
   return JSON.stringify(payload);
 };
 
@@ -33,3 +37,6 @@ export const buildTriviaAnswerMessage = (answer) =>
   JSON.stringify({ type: 'trivia_answer', answer });
 
 export const buildGuessMessage = (selection) => JSON.stringify(selection);
+
+export const buildColoursBetMessage = (bets) =>
+  JSON.stringify({ type: 'colours_bet', bets });

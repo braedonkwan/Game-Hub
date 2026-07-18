@@ -19,6 +19,8 @@ export const getScreenData = (gameData) => {
     playlistSetupConfig: gameData?.type === 'playlist_list' ? gameData : null,
     isTriviaSetup: gameData?.type === 'trivia_setup',
     isTriviaQuestion: gameData?.type === 'trivia_question',
+    isColoursSetup: gameData?.type === 'colours_setup',
+    isColoursRound: gameData?.type === 'colours_round',
     usernameError:
       gameData?.type === 'username_error' ? gameData.message : null,
     scoreboardPayload,

@@ -49,6 +49,23 @@ describe('connection helpers', () => {
     expect(deriveStateFromPayload({ type: 'trivia_setup' })).toBe(
       GAME_STATES.SETUP
     );
+    expect(deriveStateFromPayload({ type: 'colours_setup' })).toBe(
+      GAME_STATES.SETUP
+    );
+    expect(
+      deriveStateFromPayload({
+        type: 'colours_round',
+        colours: ['red'],
+        canBet: true,
+      })
+    ).toBe(GAME_STATES.SELECT_ANSWER);
+    expect(
+      deriveStateFromPayload({
+        type: 'colours_round',
+        colours: ['red'],
+        canBet: false,
+      })
+    ).toBe(GAME_STATES.WAITING);
     expect(deriveStateFromPayload({ type: 'trivia_question' })).toBe(
       GAME_STATES.SELECT_ANSWER
     );

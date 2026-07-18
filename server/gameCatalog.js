@@ -1,5 +1,6 @@
 const SPOTIFY_GAME_ID = 'spotify';
 const TRIVIA_GAME_ID = 'trivia';
+const COLOURS_GAME_ID = 'colours';
 
 const GAME_CATALOG = [
     {
@@ -32,6 +33,21 @@ const GAME_CATALOG = [
         },
         highlights: ['Multiple choice', 'Timed scoring'],
     },
+    {
+        id: COLOURS_GAME_ID,
+        name: 'Colours',
+        description: 'Bet against a rotating banker and outlast the table.',
+        type: 'game',
+        tag: 'Banking',
+        badge: 'CO',
+        meta: {
+            players: '2+',
+            rounds: 'Last player standing',
+            time: 'Varies',
+            difficulty: 'Easy',
+        },
+        highlights: ['Six-colour betting', 'Rotating banker'],
+    },
 ];
 
 const cloneGameCatalogEntry = (game) => ({
@@ -57,6 +73,7 @@ const buildGameCatalog = ({
 
 module.exports = {
     buildGameCatalog,
+    COLOURS_GAME_ID,
     GAME_CATALOG,
     SPOTIFY_GAME_ID,
     TRIVIA_GAME_ID,

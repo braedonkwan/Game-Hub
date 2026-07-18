@@ -975,6 +975,173 @@ select:focus {
     gap: 16px;
 }
 
+.currency-input-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 850;
+}
+
+.currency-input-wrap .currency-input {
+    width: 150px;
+    text-align: left;
+}
+
+.colours-container .vertical {
+    align-items: stretch;
+}
+
+.colours-round-header,
+.colours-balance-strip,
+.colour-actions,
+.colour-result {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.colours-round-header .subtitle {
+    text-align: left;
+}
+
+.colours-timer {
+    min-width: 72px;
+    padding: 10px 14px;
+    border: 2px solid var(--line);
+    border-radius: 999px;
+    background: #eaf8e3;
+    font-size: 1.15rem;
+    font-weight: 900;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.colours-timer--urgent {
+    background: #fff0ee;
+    color: var(--danger);
+}
+
+.colours-balance-strip {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: #eef9fc;
+}
+
+.colour-bet-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.colour-bet {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px 10px;
+    align-items: center;
+    padding: 12px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.colour-swatch {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 auto;
+    border: 2px solid rgba(23, 25, 35, 0.5);
+    border-radius: 999px;
+    background: var(--colour-swatch, #777);
+}
+
+.colour-bet--red,
+.colour-result--red { --colour-swatch: #e23b3b; }
+.colour-bet--orange,
+.colour-result--orange { --colour-swatch: #f28b25; }
+.colour-bet--yellow,
+.colour-result--yellow { --colour-swatch: #f4d03f; }
+.colour-bet--green,
+.colour-result--green { --colour-swatch: #48a84f; }
+.colour-bet--blue,
+.colour-result--blue { --colour-swatch: #3488db; }
+.colour-bet--purple,
+.colour-result--purple { --colour-swatch: #9556c7; }
+
+.colour-bet-input {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: auto 1fr;
+}
+
+.colour-bet-input input {
+    min-width: 0;
+    width: 100%;
+    padding: 9px 10px;
+    border: 2px solid var(--line);
+    border-radius: 8px;
+    font-size: 1rem;
+}
+
+.bet-total,
+.colour-result,
+.colours-watch-card {
+    padding: 12px 14px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: #f8f9fb;
+    font-weight: 750;
+}
+
+.bet-total {
+    text-align: center;
+}
+
+.bet-total--invalid {
+    border-color: var(--danger);
+    background: #fff0ee;
+    color: var(--danger);
+}
+
+.colour-actions {
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.colours-watch-card {
+    display: flex;
+    min-height: 220px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    text-align: center;
+}
+
+.colour-wheel {
+    width: 84px;
+    height: 84px;
+    border: 2px solid var(--line);
+    border-radius: 999px;
+    background: conic-gradient(#e23b3b 0 60deg, #f28b25 60deg 120deg, #f4d03f 120deg 180deg, #48a84f 180deg 240deg, #3488db 240deg 300deg, #9556c7 300deg);
+    box-shadow: 0 8px 18px rgba(23, 25, 35, 0.16);
+}
+
+.colour-result {
+    justify-content: center;
+    background: #ffffff;
+    font-size: 1.05rem;
+}
+
+.colours-scoreboard-table th:nth-child(n + 2),
+.colours-scoreboard-table td:nth-child(n + 2) {
+    text-align: right;
+    white-space: nowrap;
+}
+
 .action-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -1212,6 +1379,30 @@ select:focus {
     .grid,
     .action-grid {
         grid-template-columns: 1fr;
+    }
+
+    .colour-bet-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .colours-round-header {
+        align-items: flex-start;
+    }
+
+    .colours-scoreboard-table th:nth-child(2),
+    .colours-scoreboard-table td:nth-child(2) {
+        width: 84px;
+        padding-right: 5px;
+        padding-left: 5px;
+        font-size: 0.76rem;
+    }
+
+    .colours-scoreboard-table th:last-child,
+    .colours-scoreboard-table td:last-child {
+        width: 92px;
+        padding-right: 6px;
+        padding-left: 6px;
+        font-size: 0.78rem;
     }
 
     .selection-box {

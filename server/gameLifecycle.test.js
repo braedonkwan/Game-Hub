@@ -8,6 +8,7 @@ const {
     resetRoundState,
 } = require('./gameLifecycle');
 const { createTriviaState } = require('./trivia');
+const { createColoursState } = require('./colours');
 
 const createGame = () => ({
     activeGameId: 'trivia',
@@ -32,6 +33,7 @@ const createGame = () => ({
     },
     lastRoundDeltas: { 1: 100 },
     lastRoundOutcomes: { 1: { answered: true, correct: true } },
+    colours: createColoursState({ round: 3, bankerKey: 'ada' }),
 });
 
 test('resetRoundState clears only round-specific data', () => {
@@ -76,6 +78,7 @@ test('resetActiveGameData clears game-specific data but keeps room identity', ()
     assert.equal(game.maxRounds, 0);
     assert.equal(game.answerTimeoutMs, ROUND_ANSWER_TIMEOUT_MS);
     assert.deepEqual(game.trivia, createTriviaState());
+    assert.deepEqual(game.colours, createColoursState());
 });
 
 test('resetRoomState clears active game and returns to username phase', () => {

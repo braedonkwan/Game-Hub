@@ -9,6 +9,10 @@ import TriviaSetupScreen from '../screens/TriviaSetupScreen';
 import UsernameScreen from '../screens/UsernameScreen';
 import WaitingScreen from '../screens/WaitingScreen';
 import WinnerScreen from '../screens/WinnerScreen';
+import ColoursRoundScreen from '../screens/ColoursRoundScreen';
+import ColoursScoreboardScreen from '../screens/ColoursScoreboardScreen';
+import ColoursSetupScreen from '../screens/ColoursSetupScreen';
+import ColoursWinnerScreen from '../screens/ColoursWinnerScreen';
 import { GAME_STATES } from '../utils/gameState';
 
 const GameScreenRouter = ({
@@ -26,6 +30,8 @@ const GameScreenRouter = ({
     playlistSetupConfig,
     isTriviaSetup,
     isTriviaQuestion,
+    isColoursSetup,
+    isColoursRound,
     usernameError,
     scoreboardPayload,
     scoreboardData,
@@ -58,7 +64,13 @@ const GameScreenRouter = ({
         />
       );
     case GAME_STATES.SETUP:
-      return isTriviaSetup ? (
+      return isColoursSetup ? (
+        <ColoursSetupScreen
+          config={gameData}
+          onStart={actions.startGame}
+          players={players}
+        />
+      ) : isTriviaSetup ? (
         <TriviaSetupScreen config={gameData} onStart={actions.startGame} />
       ) : (
         <SetupScreen
@@ -69,7 +81,9 @@ const GameScreenRouter = ({
         />
       );
     case GAME_STATES.SELECT_ANSWER:
-      return isTriviaQuestion ? (
+      return isColoursRound ? (
+        <ColoursRoundScreen data={gameData} onBet={actions.sendColoursBet} />
+      ) : isTriviaQuestion ? (
         <TriviaQuestionScreen
           category={gameData.category}
           difficulty={gameData.difficulty}
@@ -88,7 +102,9 @@ const GameScreenRouter = ({
         <SelectionScreen selections={gameData} onGuess={actions.sendGuess} />
       );
     case GAME_STATES.WAITING:
-      return (
+      return isColoursRound ? (
+        <ColoursRoundScreen data={gameData} onBet={actions.sendColoursBet} />
+      ) : (
         <WaitingScreen
           message="Waiting for other players to guess..."
           players={players}
@@ -96,7 +112,13 @@ const GameScreenRouter = ({
         />
       );
     case GAME_STATES.SCOREBOARD:
-      return (
+      return scoreboardPayload?.gameId === 'colours' ? (
+        <ColoursScoreboardScreen
+          payload={scoreboardPayload}
+          currentUsername={currentUsername}
+          onReady={actions.sendReady}
+        />
+      ) : (
         <ScoreboardScreen
           scoreboard={scoreboardData}
           round={scoreboardPayload?.round}
@@ -107,7 +129,12 @@ const GameScreenRouter = ({
         />
       );
     case GAME_STATES.GAME_OVER:
-      return (
+      return scoreboardPayload?.gameId === 'colours' ? (
+        <ColoursWinnerScreen
+          payload={scoreboardPayload}
+          currentUsername={currentUsername}
+        />
+      ) : (
         <WinnerScreen
           scoreboard={scoreboardData}
           currentUsername={currentUsername}

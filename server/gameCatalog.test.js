@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     buildGameCatalog,
+    COLOURS_GAME_ID,
     SPOTIFY_GAME_ID,
     TRIVIA_GAME_ID,
 } = require('./gameCatalog');
@@ -11,6 +12,7 @@ test('buildGameCatalog keeps games available by default', () => {
 
     assert.equal(games.find((game) => game.id === SPOTIFY_GAME_ID).available, true);
     assert.equal(games.find((game) => game.id === TRIVIA_GAME_ID).available, true);
+    assert.equal(games.find((game) => game.id === COLOURS_GAME_ID).available, true);
 });
 
 test('buildGameCatalog disables only Spotify with a reason', () => {

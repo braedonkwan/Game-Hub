@@ -27,6 +27,8 @@ describe('screen data selectors', () => {
 
     expect(getScreenData({ type: 'trivia_setup' }).isTriviaSetup).toBe(true);
     expect(getScreenData({ type: 'trivia_question' }).isTriviaQuestion).toBe(true);
+    expect(getScreenData({ type: 'colours_setup' }).isColoursSetup).toBe(true);
+    expect(getScreenData({ type: 'colours_round' }).isColoursRound).toBe(true);
     expect(
       getScreenData({ type: 'username_error', message: 'Taken' }).usernameError
     ).toBe('Taken');

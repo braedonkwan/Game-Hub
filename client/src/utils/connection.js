@@ -1,6 +1,8 @@
 import {
   GAME_STATES,
   isGameListPayload,
+  isColoursRoundPayload,
+  isColoursSetupPayload,
   isPlaylistPayload,
   isScoreboardPayload,
   isSelectionPayload,
@@ -102,11 +104,18 @@ export const parseSocketMessage = (data) => {
 
 export const deriveStateFromPayload = (payload) => {
   if (isGameListPayload(payload)) return GAME_STATES.SELECT_GAME;
-  if (isTriviaSetupPayload(payload) || isPlaylistPayload(payload)) {
+  if (
+    isTriviaSetupPayload(payload) ||
+    isColoursSetupPayload(payload) ||
+    isPlaylistPayload(payload)
+  ) {
     return GAME_STATES.SETUP;
   }
   if (isTriviaQuestionPayload(payload) || isSelectionPayload(payload)) {
     return GAME_STATES.SELECT_ANSWER;
+  }
+  if (isColoursRoundPayload(payload)) {
+    return payload.canBet ? GAME_STATES.SELECT_ANSWER : GAME_STATES.WAITING;
   }
   if (isScoreboardPayload(payload)) return GAME_STATES.SCOREBOARD;
   return null;

@@ -1,4 +1,5 @@
 const { GAME_STATES, ROUND_ANSWER_TIMEOUT_MS } = require('./constants');
+const { createColoursState } = require('./colours');
 const { createTriviaState } = require('./trivia');
 
 const resetRoundState = (game, clearRoundTimeout = () => {}) => {
@@ -21,6 +22,7 @@ const resetActiveGameData = (game, clearRoundTimeout = () => {}) => {
     game.playlist = [];
     game.selections = null;
     game.trivia = createTriviaState();
+    game.colours = createColoursState();
 };
 
 const resetRoomState = (game, clearRoundTimeout = () => {}) => {

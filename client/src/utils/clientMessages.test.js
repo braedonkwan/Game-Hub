@@ -7,6 +7,7 @@ import {
   buildGuessMessage,
   buildStartGameMessage,
   buildTriviaAnswerMessage,
+  buildColoursBetMessage,
   buildUsernameMessage,
 } from './clientMessages';
 
@@ -63,9 +64,26 @@ describe('client websocket messages', () => {
     expect(JSON.parse(buildGuessMessage({ name: 'Song' }))).toEqual({
       name: 'Song',
     });
+    expect(
+      JSON.parse(buildColoursBetMessage({ red: '1.00', blue: '0.50' }))
+    ).toEqual({
+      type: 'colours_bet',
+      bets: { red: '1.00', blue: '0.50' },
+    });
     expect(READY_MESSAGE).toBe('ready');
     expect(PLAY_AGAIN_MESSAGE).toBe('play again');
     expect(SETUP_GAME_MESSAGE).toBe('setup game');
     expect(NEW_GAME_MESSAGE).toBe('new game');
+  });
+
+  test('includes Colours starting cash in setup messages', () => {
+    expect(
+      JSON.parse(
+        buildStartGameMessage({ startingCash: '100.00', betSeconds: 45 })
+      )
+    ).toEqual({
+      startingCash: '100.00',
+      betSeconds: 45,
+    });
   });
 });

@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { GAME_STATES } = require('./constants');
-const { SPOTIFY_GAME_ID, TRIVIA_GAME_ID } = require('./gameCatalog');
+const { COLOURS_GAME_ID, SPOTIFY_GAME_ID, TRIVIA_GAME_ID } = require('./gameCatalog');
 const {
     PLAY_AGAIN_ACTIONS,
     canSetupAgain,
@@ -29,6 +29,7 @@ test('isPostGameClient matches clients that can receive play-again transitions',
 test('isReplayableGame accepts supported active games', () => {
     assert.equal(isReplayableGame(SPOTIFY_GAME_ID), true);
     assert.equal(isReplayableGame(TRIVIA_GAME_ID), true);
+    assert.equal(isReplayableGame(COLOURS_GAME_ID), true);
     assert.equal(isReplayableGame('unknown'), false);
     assert.equal(isReplayableGame(null), false);
 });
@@ -36,6 +37,7 @@ test('isReplayableGame accepts supported active games', () => {
 test('canSetupAgain requires a leader and supported active game', () => {
     assert.equal(canSetupAgain({ gameleader: true }, SPOTIFY_GAME_ID), true);
     assert.equal(canSetupAgain({ gameleader: true }, TRIVIA_GAME_ID), true);
+    assert.equal(canSetupAgain({ gameleader: true }, COLOURS_GAME_ID), true);
     assert.equal(canSetupAgain({ gameleader: false }, TRIVIA_GAME_ID), false);
     assert.equal(canSetupAgain({ gameleader: true }, 'unknown'), false);
     assert.equal(canSetupAgain(null, TRIVIA_GAME_ID), false);

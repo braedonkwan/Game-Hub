@@ -16,6 +16,7 @@ import {
   buildGuessMessage,
   buildStartGameMessage,
   buildTriviaAnswerMessage,
+  buildColoursBetMessage,
   buildUsernameMessage,
 } from '../utils/clientMessages';
 import {
@@ -146,6 +147,10 @@ const useGameConnection = (url) => {
     (answer) => submitAnswer(buildTriviaAnswerMessage(answer)),
     [submitAnswer]
   );
+  const sendColoursBet = useCallback(
+    (bets) => send(buildColoursBetMessage(bets)),
+    [send]
+  );
 
   const actions = useMemo(
     () => ({
@@ -154,6 +159,7 @@ const useGameConnection = (url) => {
       selectGame,
       sendGuess,
       sendTriviaAnswer,
+      sendColoursBet,
       sendReady,
       playAgain,
       setupGame,
@@ -168,6 +174,7 @@ const useGameConnection = (url) => {
       sendGuess,
       sendReady,
       sendTriviaAnswer,
+      sendColoursBet,
       sendUsername,
       setupGame,
       startGame,

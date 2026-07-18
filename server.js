@@ -14,6 +14,21 @@ const {
 } = require('./server/config');
 const { applyAnswerSubmission } = require('./server/answerSubmission');
 const {
+    COLOUR_NAMES,
+    buildColoursSetupPayload,
+    createColoursState,
+    getColoursWinner,
+    haveAllEligiblePlayersBet,
+    initializeColoursGame,
+    playerKey,
+    prepareColoursRound,
+    removeColoursPlayer,
+    rotateColoursBanker,
+    settleColoursRound,
+    submitColoursBet,
+    validateColoursSetup,
+} = require('./server/colours');
+const {
     cancelReconnectCleanup,
     createClientRecord,
     markClientDisconnected,
@@ -42,6 +57,7 @@ const {
 } = require('./server/spotify');
 const {
     buildGameCatalog,
+    COLOURS_GAME_ID,
     GAME_CATALOG,
     SPOTIFY_GAME_ID,
     TRIVIA_GAME_ID,
@@ -160,6 +176,7 @@ const game = {
     answerTimeoutMs: ROUND_ANSWER_TIMEOUT_MS,
     phase: SET_USERNAME,
     trivia: createTriviaState(),
+    colours: createColoursState(),
     lastRoundDeltas: null,
     lastRoundOutcomes: null,
 };
@@ -217,6 +234,16 @@ const sendTriviaSetup = async (client, error) => {
     const payload = await getTriviaSetupPayload(error ? { error } : {});
     updateClientState(client, SETUP, payload);
 };
+const sendColoursSetup = (client, error) => {
+    const playerCount = [...clients.values()].filter(
+        (entry) => isActiveClient(entry) && entry.username
+    ).length;
+    updateClientState(
+        client,
+        SETUP,
+        buildColoursSetupPayload(error, playerCount)
+    );
+};
 const GAME_HANDLERS = {
     [SPOTIFY_GAME_ID]: {
         setup: async (client) => {
@@ -226,6 +253,11 @@ const GAME_HANDLERS = {
     [TRIVIA_GAME_ID]: {
         setup: async (client) => {
             await sendTriviaSetup(client);
+        },
+    },
+    [COLOURS_GAME_ID]: {
+        setup: async (client) => {
+            sendColoursSetup(client);
         },
     },
 };
@@ -301,6 +333,149 @@ const broadcast = (predicate, cb) => {
     });
 };
 
+const getColoursPlayer = (client) =>
+    game.colours.players[playerKey(client?.username)] || null;
+
+const getColoursRole = (client) => {
+    const key = playerKey(client?.username);
+    const player = game.colours.players[key];
+    if (!player) return 'spectator';
+    if (player.eliminated || player.balanceCents <= 0) return 'eliminated';
+    if (key === game.colours.bankerKey) return 'banker';
+    if (game.colours.bets[key]) return 'submitted';
+    return 'bettor';
+};
+
+const buildColoursPlayers = () =>
+    game.colours.playerOrder
+        .map((key) => {
+            const player = game.colours.players[key];
+            if (!player) return null;
+            return {
+                username: player.username,
+                balanceCents: player.balanceCents,
+                deltaCents: game.colours.lastDeltas[key] ?? 0,
+                eliminated: player.eliminated,
+                isBanker: key === game.colours.roundBankerKey,
+                submitted: Boolean(game.colours.bets[key]),
+            };
+        })
+        .filter(Boolean);
+
+const buildColoursRoundPayload = (client, error) => {
+    const role = getColoursRole(client);
+    const player = getColoursPlayer(client);
+    const banker = game.colours.players[game.colours.bankerKey];
+    return {
+        type: 'colours_round',
+        gameId: COLOURS_GAME_ID,
+        round: game.colours.round,
+        banker: banker
+            ? { username: banker.username, balanceCents: banker.balanceCents }
+            : null,
+        colours: COLOUR_NAMES,
+        players: buildColoursPlayers(),
+        role,
+        canBet: role === 'bettor',
+        balanceCents: player?.balanceCents ?? null,
+        perColourMaxCents: game.colours.perColourMaxCents,
+        totalMaxCents: player
+            ? Math.min(game.colours.totalMaxCents, player.balanceCents)
+            : 0,
+        roundStartedAt: game.colours.roundStartedAt,
+        betDeadlineAt: game.colours.betDeadlineAt,
+        serverSentAt: Date.now(),
+        submittedCount: Object.keys(game.colours.bets).length,
+        eligibleCount: game.colours.eligibleKeys.length,
+        ...(error ? { error } : {}),
+    };
+};
+
+const sendColoursRoundState = (client, error) => {
+    const payload = buildColoursRoundPayload(client, error);
+    updateClientState(client, payload.canBet ? SELECT_ANSWER : WAITING, payload);
+};
+
+const broadcastColoursRoundState = () => {
+    broadcast(
+        (client) => isActiveClient(client) && client.username,
+        (client) => sendColoursRoundState(client)
+    );
+    broadcastPlayers();
+};
+
+const buildColoursScoreboardPayload = () => {
+    return {
+        type: 'scoreboard',
+        gameId: COLOURS_GAME_ID,
+        round: game.colours.round,
+        total: null,
+        banker: game.colours.roundBankerUsername,
+        winningColour: game.colours.winningColour,
+        skipped: game.colours.skipped,
+        scores: Object.fromEntries(
+            buildColoursPlayers().map((player) => [player.username.toLowerCase(), {
+                username: player.username,
+                score: player.balanceCents,
+                balanceCents: player.balanceCents,
+                deltaCents: player.deltaCents,
+                eliminated: player.eliminated,
+                isBanker: player.isBanker,
+            }])
+        ),
+    };
+};
+
+const sendColoursScoreboardState = (client, state) => {
+    sendJson(client.ws, buildColoursScoreboardPayload());
+    updateClientState(client, state);
+};
+
+const showColoursScoreboard = () => {
+    clearRoundTimeout();
+    game.phase = SCOREBOARD;
+    broadcast(
+        (client) => isActiveClient(client) && client.username,
+        (client) => sendColoursScoreboardState(client, SCOREBOARD)
+    );
+    broadcastPlayers();
+};
+
+const startColoursRound = () => {
+    clearRoundTimeout();
+    prepareColoursRound(game.colours);
+    game.rounds = game.colours.round;
+    if (game.colours.skipped) {
+        showColoursScoreboard();
+        return;
+    }
+    game.phase = SELECT_ANSWER;
+    broadcastColoursRoundState();
+    roundTimeout = setTimeout(() => {
+        finalizeColoursRound();
+    }, game.colours.betDeadlineAt - Date.now());
+};
+
+function finalizeColoursRound() {
+    if (game.activeGameId !== COLOURS_GAME_ID || game.phase !== SELECT_ANSWER) {
+        return false;
+    }
+    clearRoundTimeout();
+    settleColoursRound(game.colours);
+    showColoursScoreboard();
+    return true;
+}
+
+const canAdvanceColoursScoreboard = () => {
+    const connectedParticipants = [...clients.values()].filter(
+        (client) => isActiveClient(client) && getColoursPlayer(client)
+    );
+    return (
+        connectedParticipants.length > 0 &&
+        connectedParticipants.every((client) => client.state !== SCOREBOARD)
+    );
+};
+
 function clearRoundTimeout() {
     if (roundTimeout) {
         clearTimeout(roundTimeout);
@@ -343,6 +518,10 @@ const promoteNextLeader = async () => {
             await sendTriviaSetup(nextLeader);
             return;
         }
+        if (game.activeGameId === COLOURS_GAME_ID) {
+            sendColoursSetup(nextLeader);
+            return;
+        }
     }
     if (game.phase === PLAY_AGAIN) {
         updateClientState(nextLeader, PLAY_AGAIN);
@@ -360,6 +539,9 @@ const scheduleDisconnectedClientCleanup = (clientID, client) => {
     cancelReconnectCleanup(client);
     markClientDisconnected(client);
     client.reconnectCleanup = setTimeout(() => {
+        const removedColoursBanker =
+            game.activeGameId === COLOURS_GAME_ID &&
+            game.colours.bankerKey === playerKey(client.username);
         const result = removeDisconnectedClient({
             clients,
             clientID,
@@ -373,6 +555,30 @@ const scheduleDisconnectedClientCleanup = (clientID, client) => {
             clientIDCounter = 0;
             resetGameState();
             return;
+        }
+        if (
+            game.activeGameId === COLOURS_GAME_ID &&
+            [SELECT_ANSWER, SCOREBOARD].includes(game.phase) &&
+            removeColoursPlayer(game.colours, client.username)
+        ) {
+            if (removedColoursBanker) {
+                game.colours.bankerAdvancedForRemoval = true;
+            }
+            if (game.phase === SELECT_ANSWER) {
+                if (removedColoursBanker) {
+                    game.colours.skipped = true;
+                    game.colours.winningColour = null;
+                    showColoursScoreboard();
+                } else if (haveAllEligiblePlayersBet(game.colours)) {
+                    finalizeColoursRound();
+                } else {
+                    broadcastColoursRoundState();
+                }
+            } else if (game.phase === SCOREBOARD && canAdvanceColoursScoreboard()) {
+                advanceFromScoreboard().catch((err) => {
+                    console.error('[ERROR] Failed to advance Colours after removal.', err?.message || err);
+                });
+            }
         }
         broadcastPlayers();
         if (!hasActiveLeader()) {
@@ -420,11 +626,19 @@ const syncClientState = async (client) => {
                 await sendTriviaSetup(client);
                 return;
             }
+            if (game.activeGameId === COLOURS_GAME_ID) {
+                sendColoursSetup(client);
+                return;
+            }
         }
         updateClientState(client, READY);
         return;
     }
     if (game.phase === SELECT_ANSWER) {
+        if (game.activeGameId === COLOURS_GAME_ID) {
+            sendColoursRoundState(client);
+            return;
+        }
         const payload = getCurrentSelectionPayload();
         if (payload) {
             ensureScoreboardEntry(client);
@@ -439,11 +653,19 @@ const syncClientState = async (client) => {
         return;
     }
     if (game.phase === SCOREBOARD) {
-        sendScoreboardState(client, SCOREBOARD);
+        if (game.activeGameId === COLOURS_GAME_ID) {
+            sendColoursScoreboardState(client, SCOREBOARD);
+        } else {
+            sendScoreboardState(client, SCOREBOARD);
+        }
         return;
     }
     if (game.phase === GAME_OVER) {
-        sendScoreboardState(client, GAME_OVER);
+        if (game.activeGameId === COLOURS_GAME_ID) {
+            sendColoursScoreboardState(client, GAME_OVER);
+        } else {
+            sendScoreboardState(client, GAME_OVER);
+        }
         return;
     }
     if (game.phase === PLAY_AGAIN) {
@@ -490,16 +712,43 @@ function finalizeCurrentRound() {
 }
 
 async function advanceFromScoreboard() {
+    const canAdvance = game.activeGameId === COLOURS_GAME_ID
+        ? canAdvanceColoursScoreboard()
+        : canAdvancePastState(clients, SCOREBOARD, isActiveClient);
     if (
         game.phase !== SCOREBOARD ||
         scoreboardTransitionInProgress ||
-        !canAdvancePastState(clients, SCOREBOARD, isActiveClient)
+        !canAdvance
     ) {
         return false;
     }
 
     scoreboardTransitionInProgress = true;
     try {
+        if (game.activeGameId === COLOURS_GAME_ID) {
+            const winner = getColoursWinner(game.colours);
+            if (winner) {
+                game.phase = GAME_OVER;
+                broadcast(
+                    (client) => isActiveClient(client) && client.username,
+                    (client) => sendColoursScoreboardState(client, GAME_OVER)
+                );
+                await sleep(GAME_OVER_DISPLAY_MS);
+                game.phase = PLAY_AGAIN;
+                broadcast(
+                    (client) => isActiveClient(client) && client.gameleader,
+                    (client) => updateClientState(client, PLAY_AGAIN)
+                );
+                return true;
+            }
+            if (game.colours.bankerAdvancedForRemoval) {
+                game.colours.bankerAdvancedForRemoval = false;
+            } else {
+                rotateColoursBanker(game.colours);
+            }
+            startColoursRound();
+            return true;
+        }
         if (game.rounds >= game.maxRounds) {
             game.phase = GAME_OVER;
             broadcast(
@@ -635,6 +884,10 @@ async function resetToSetupWithError(errorMessage) {
         await sendTriviaSetup(leader, errorMessage);
         return;
     }
+    if (game.activeGameId === COLOURS_GAME_ID) {
+        sendColoursSetup(leader, errorMessage);
+        return;
+    }
     updateClientState(leader, READY);
 }
 
@@ -671,14 +924,19 @@ async function handleSetUsername(client, text) {
     sendSession(client);
     broadcastPlayers();
     await syncClientState(client);
-    if (
-        game.phase === SELECT_ANSWER &&
-        canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)
-    ) {
-        finalizeCurrentRound();
+    if (game.phase === SELECT_ANSWER) {
+        if (game.activeGameId === COLOURS_GAME_ID) {
+            if (haveAllEligiblePlayersBet(game.colours)) {
+                finalizeColoursRound();
+            }
+        } else if (canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)) {
+            finalizeCurrentRound();
+        }
     } else if (
         game.phase === SCOREBOARD &&
-        canAdvancePastState(clients, SCOREBOARD, isActiveClient)
+        (game.activeGameId === COLOURS_GAME_ID
+            ? canAdvanceColoursScoreboard()
+            : canAdvancePastState(clients, SCOREBOARD, isActiveClient))
     ) {
         await advanceFromScoreboard();
     }
@@ -716,7 +974,7 @@ async function handleSetup(client, text) {
     if (!client.gameleader) {
         return;
     }
-    if (![SPOTIFY_GAME_ID, TRIVIA_GAME_ID].includes(game.activeGameId)) {
+    if (![SPOTIFY_GAME_ID, TRIVIA_GAME_ID, COLOURS_GAME_ID].includes(game.activeGameId)) {
         return;
     }
     const cfg = parseJson(text);
@@ -770,12 +1028,56 @@ async function handleSetup(client, text) {
                 'No trivia questions found for that topic and difficulty.'
             );
         }
+        return;
+    }
+    if (game.activeGameId === COLOURS_GAME_ID) {
+        const usernames = [...clients.values()]
+            .filter((entry) => isActiveClient(entry) && entry.username)
+            .map((entry) => entry.username);
+        if (usernames.length < 2) {
+            sendColoursSetup(client, 'At least two connected players are required.');
+            return;
+        }
+        const setup = validateColoursSetup(cfg, usernames.length);
+        if (!setup.ok) {
+            sendColoursSetup(client, setup.error);
+            return;
+        }
+        game.colours = initializeColoursGame(
+            usernames,
+            setup.startingCashCents,
+            undefined,
+            setup.betTimeoutMs
+        );
+        game.scoreboard = {};
+        startColoursRound();
     }
 }
 
 function handleSelectAnswer(client, text) {
     const payload = parseJson(text);
     if (!payload) {
+        return;
+    }
+    if (game.activeGameId === COLOURS_GAME_ID) {
+        const now = Date.now();
+        if (isDeadlineExpired(game.colours.betDeadlineAt, now)) {
+            finalizeColoursRound();
+            return;
+        }
+        if (payload.type !== 'colours_bet') {
+            sendColoursRoundState(client, 'That bet could not be read.');
+            return;
+        }
+        const result = submitColoursBet(game.colours, client.username, payload.bets);
+        if (!result.ok) {
+            sendColoursRoundState(client, result.error);
+            return;
+        }
+        broadcastColoursRoundState();
+        if (haveAllEligiblePlayersBet(game.colours)) {
+            finalizeColoursRound();
+        }
         return;
     }
     const answeredAt = Date.now();
@@ -826,11 +1128,39 @@ async function handlePlayAgain(client, text) {
         }
         if (game.activeGameId === TRIVIA_GAME_ID) {
             await sendTriviaSetup(client);
+            return;
+        }
+        if (game.activeGameId === COLOURS_GAME_ID) {
+            sendColoursSetup(client);
         }
         return;
     }
     if (text === PLAY_AGAIN_ACTIONS.PLAY_AGAIN) {
+        const coloursStartingCashCents = game.colours.startingCashCents;
+        const coloursBetTimeoutMs = game.colours.betTimeoutMs;
         resetRoundState();
+        if (game.activeGameId === COLOURS_GAME_ID) {
+            const usernames = [...clients.values()]
+                .filter((entry) => isActiveClient(entry) && entry.username)
+                .map((entry) => entry.username);
+            if (usernames.length < 2) {
+                game.phase = SETUP;
+                broadcast(
+                    (entry) => isActiveClient(entry) && !entry.gameleader,
+                    (entry) => updateClientState(entry, READY)
+                );
+                sendColoursSetup(client, 'At least two connected players are required.');
+                return;
+            }
+            game.colours = initializeColoursGame(
+                usernames,
+                coloursStartingCashCents,
+                undefined,
+                coloursBetTimeoutMs
+            );
+            startColoursRound();
+            return;
+        }
         if (game.activeGameId === TRIVIA_GAME_ID) {
             game.rounds = 1;
             await startTriviaGame(
@@ -928,14 +1258,19 @@ wss.on('connection', (ws, req) => {
         const wasLeader = disconnectedClient?.gameleader;
         scheduleDisconnectedClientCleanup(clientID, disconnectedClient);
         broadcastPlayers();
-        if (
-            game.phase === SELECT_ANSWER &&
-            canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)
-        ) {
-            finalizeCurrentRound();
+        if (game.phase === SELECT_ANSWER) {
+            if (game.activeGameId === COLOURS_GAME_ID) {
+                if (haveAllEligiblePlayersBet(game.colours)) {
+                    finalizeColoursRound();
+                }
+            } else if (canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)) {
+                finalizeCurrentRound();
+            }
         } else if (
             game.phase === SCOREBOARD &&
-            canAdvancePastState(clients, SCOREBOARD, isActiveClient)
+            (game.activeGameId === COLOURS_GAME_ID
+                ? canAdvanceColoursScoreboard()
+                : canAdvancePastState(clients, SCOREBOARD, isActiveClient))
         ) {
             advanceFromScoreboard().catch((err) => {
                 console.error(
