@@ -51,7 +51,7 @@ const ColoursRoundScreen = ({ data, onBet, onChooseColour }) => {
     [bets, colours]
   );
   const amountsValid = colours.every((colour) => {
-    const cents = parseCurrencyCents(bets[colour]);
+    const cents = parseCurrencyCents(bets[colour] || '0');
     return cents !== null && cents <= (data?.perColourMaxCents ?? 0);
   });
   const totalValid =

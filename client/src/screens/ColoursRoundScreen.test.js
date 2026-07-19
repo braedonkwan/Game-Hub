@@ -42,6 +42,20 @@ describe('ColoursRoundScreen', () => {
     expect(screen.getByRole('button', { name: 'Submit bet' }).disabled).toBe(true);
   });
 
+  test('treats blank bet fields as zero', () => {
+    const onBet = jest.fn(() => true);
+    render(<ColoursRoundScreen data={payload} onBet={onBet} />);
+
+    fireEvent.change(screen.getByLabelText('Red bet'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Blue bet'), { target: { value: '2.00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit bet' }));
+
+    expect(onBet).toHaveBeenCalledWith(expect.objectContaining({
+      red: '0.00',
+      blue: '2.00',
+    }));
+  });
+
   test('renders a read-only banker view', () => {
     render(
       <ColoursRoundScreen

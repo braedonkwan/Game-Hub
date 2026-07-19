@@ -51,13 +51,151 @@ select {
 .bg-particles {
     position: fixed;
     inset: 0;
+    z-index: 0;
     pointer-events: none;
-    opacity: 0.36;
+    opacity: 0.25;
     background-image:
         linear-gradient(rgba(23, 25, 35, 0.075) 1px, transparent 1px),
         linear-gradient(90deg, rgba(23, 25, 35, 0.075) 1px, transparent 1px);
     background-size: 42px 42px;
     mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent 82%);
+    animation: background-grid-drift 18s linear infinite;
+}
+
+.game-background {
+    --backdrop-one: rgba(255, 116, 85, 0.3);
+    --backdrop-two: rgba(0, 163, 191, 0.24);
+    --backdrop-three: rgba(105, 191, 69, 0.2);
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.game-background__aurora {
+    position: absolute;
+    width: min(52vw, 680px);
+    aspect-ratio: 1;
+    border-radius: 46% 54% 58% 42%;
+    opacity: 0.76;
+    filter: blur(12px);
+    will-change: transform;
+}
+
+.game-background__aurora--one {
+    top: -28%;
+    left: -12%;
+    background: radial-gradient(circle at 55% 55%, var(--backdrop-one), transparent 68%);
+    animation: background-aurora-one 16s ease-in-out infinite alternate;
+}
+
+.game-background__aurora--two {
+    right: -18%;
+    bottom: -34%;
+    background: radial-gradient(circle at 45% 45%, var(--backdrop-two), transparent 68%);
+    animation: background-aurora-two 20s ease-in-out infinite alternate;
+}
+
+.game-background__aurora--three {
+    top: 24%;
+    left: 38%;
+    width: min(38vw, 480px);
+    background: radial-gradient(circle, var(--backdrop-three), transparent 70%);
+    animation: background-aurora-three 14s ease-in-out infinite alternate;
+}
+
+.game-background__particles span {
+    position: absolute;
+    top: var(--particle-top);
+    left: var(--particle-left);
+    display: grid;
+    width: var(--particle-size);
+    height: var(--particle-size);
+    place-items: center;
+    opacity: 0.25;
+    color: #126477;
+    font-size: 0;
+    font-weight: 900;
+    will-change: transform;
+    animation: background-particle-float var(--particle-duration) ease-in-out infinite;
+    animation-delay: var(--particle-delay);
+}
+
+.game-background--hub .game-background__particles span {
+    border: 2px solid var(--accent-2);
+    border-radius: 5px;
+    transform: rotate(45deg);
+}
+
+.game-background--music {
+    --backdrop-one: rgba(127, 81, 255, 0.3);
+    --backdrop-two: rgba(0, 199, 155, 0.27);
+    --backdrop-three: rgba(255, 116, 85, 0.2);
+}
+
+.game-background--music .game-background__particles span {
+    width: calc(var(--particle-size) * 0.28);
+    border-radius: 999px;
+    background: #7048dc;
+    box-shadow:
+        calc(var(--particle-size) * -0.48) 5px 0 rgba(0, 163, 191, 0.75),
+        calc(var(--particle-size) * 0.48) -5px 0 rgba(255, 116, 85, 0.8);
+}
+
+.game-background--trivia {
+    --backdrop-one: rgba(245, 183, 0, 0.28);
+    --backdrop-two: rgba(0, 163, 191, 0.28);
+    --backdrop-three: rgba(149, 86, 199, 0.2);
+}
+
+.game-background--trivia .game-background__particles span {
+    border: 2px solid rgba(32, 37, 50, 0.5);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.68);
+    box-shadow: 3px 3px 0 rgba(32, 37, 50, 0.16);
+    color: #6a4b00;
+    font-size: calc(var(--particle-size) * 0.7);
+}
+
+.game-background--colours {
+    --backdrop-one: rgba(226, 59, 59, 0.25);
+    --backdrop-two: rgba(52, 136, 219, 0.27);
+    --backdrop-three: rgba(244, 208, 63, 0.24);
+}
+
+.game-background--colours .game-background__particles span {
+    border: 2px solid rgba(32, 37, 50, 0.24);
+    border-radius: 50%;
+    background: #e23b3b;
+    box-shadow: inset -4px -5px 0 rgba(23, 25, 35, 0.12);
+}
+
+.game-background--colours .game-background__particles span:nth-child(6n + 2) { background: #f28b25; }
+.game-background--colours .game-background__particles span:nth-child(6n + 3) { background: #f4d03f; }
+.game-background--colours .game-background__particles span:nth-child(6n + 4) { background: #48a84f; }
+.game-background--colours .game-background__particles span:nth-child(6n + 5) { background: #3488db; }
+.game-background--colours .game-background__particles span:nth-child(6n + 6) { background: #9556c7; }
+
+@keyframes background-grid-drift {
+    to { background-position: 42px 42px; }
+}
+
+@keyframes background-aurora-one {
+    to { transform: translate(18vw, 12vh) rotate(24deg) scale(1.12); }
+}
+
+@keyframes background-aurora-two {
+    to { transform: translate(-16vw, -10vh) rotate(-28deg) scale(1.08); }
+}
+
+@keyframes background-aurora-three {
+    to { transform: translate(-12vw, 18vh) rotate(20deg) scale(1.2); }
+}
+
+@keyframes background-particle-float {
+    0%, 100% { transform: translate3d(0, 0, 0) rotate(-8deg) scale(0.9); }
+    50% { transform: translate3d(18px, -42px, 0) rotate(14deg) scale(1.12); opacity: 0.48; }
 }
 
 .connection-banner {

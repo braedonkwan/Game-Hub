@@ -194,7 +194,10 @@ const normalizeBets = (bets) => {
     if (Object.keys(bets).some((key) => !COLOUR_NAMES.includes(key))) return null;
     const normalized = {};
     for (const colour of COLOUR_NAMES) {
-        const cents = parseCurrencyToCents(bets[colour] ?? '0');
+        const value = bets[colour];
+        const cents = parseCurrencyToCents(
+            value === null || value === undefined || String(value).trim() === '' ? '0' : value
+        );
         if (cents === null) return null;
         normalized[colour] = cents;
     }

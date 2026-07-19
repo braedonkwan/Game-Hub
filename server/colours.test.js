@@ -133,6 +133,18 @@ test('bet validation enforces per-colour, total, balance, and one submission', (
     assert.equal(submitColoursBet(next, 'Bea', zeroBets({ red: '1.001' })).ok, false);
 });
 
+test('blank bet values are normalized to zero', () => {
+    const state = initializeColoursGame(['Ada', 'Bea'], 10000, () => 0);
+    prepareColoursRound(state);
+
+    assert.deepEqual(
+        submitColoursBet(state, 'Bea', zeroBets({ red: '', blue: '2.00' })),
+        { ok: true, totalCents: 200 }
+    );
+    assert.equal(state.bets.bea.red, 0);
+    assert.equal(state.bets.bea.blue, 200);
+});
+
 test('settlement transfers stakes and pays the winner six times gross', () => {
     const state = initializeColoursGame(['Ada', 'Bea', 'Cam'], 10000, () => 0);
     prepareColoursRound(state);
