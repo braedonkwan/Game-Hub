@@ -3,6 +3,7 @@ const test = require('node:test');
 
 const {
     COLOUR_NAMES,
+    beginColoursBankerChoice,
     buildColoursSetupPayload,
     formatCents,
     getColoursLimits,
@@ -13,6 +14,7 @@ const {
     prepareColoursRound,
     removeColoursPlayer,
     rotateColoursBanker,
+    selectColoursWinningColour,
     settleColoursRound,
     submitColoursBet,
     validateColoursSetup,
@@ -98,6 +100,24 @@ test('round deadlines use the configured betting duration', () => {
     );
     prepareColoursRound(state, 1000);
     assert.equal(state.betDeadlineAt, 46000);
+});
+
+test('only the banker can choose a valid colour after betting', () => {
+    const state = initializeColoursGame(['Ada', 'Bea'], 10000, () => 0, 45000);
+    prepareColoursRound(state, 1000);
+    assert.equal(selectColoursWinningColour(state, 'Ada', 'red').ok, false);
+
+    beginColoursBankerChoice(state, 2000);
+    assert.equal(state.betDeadlineAt, 47000);
+    assert.equal(selectColoursWinningColour(state, 'Bea', 'red').ok, false);
+    assert.equal(selectColoursWinningColour(state, 'Ada', 'pink').ok, false);
+    assert.deepEqual(selectColoursWinningColour(state, 'Ada', 'purple'), {
+        ok: true,
+        colour: 'purple',
+    });
+    settleColoursRound(state, () => assert.fail('random choice should not run'));
+    assert.equal(state.winningColour, 'purple');
+    assert.equal(state.roundStage, 'settled');
 });
 
 test('bet validation enforces per-colour, total, balance, and one submission', () => {

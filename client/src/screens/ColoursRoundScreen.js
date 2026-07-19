@@ -16,9 +16,10 @@ const roleMessage = {
   eliminated: 'You have been eliminated, but you can keep watching the game.',
   spectator: 'This game is already underway. You are watching as a spectator.',
   submitted: 'Your bet is locked in. Waiting for the rest of the table.',
+  waiting_for_banker: 'All bets are locked in. Waiting for the banker to choose a colour.',
 };
 
-const ColoursRoundScreen = ({ data, onBet }) => {
+const ColoursRoundScreen = ({ data, onBet, onChooseColour }) => {
   const colours = useMemo(
     () => (Array.isArray(data?.colours) ? data.colours : []),
     [data?.colours]
@@ -33,7 +34,7 @@ const ColoursRoundScreen = ({ data, onBet }) => {
     setSent(false);
     receivedAtRef.current = Date.now();
     setNow(Date.now());
-  }, [data?.round]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data?.round, data?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (data?.error) setSent(false);
@@ -77,6 +78,11 @@ const ColoursRoundScreen = ({ data, onBet }) => {
     if (onBet(normalized)) setSent(true);
   };
 
+  const chooseColour = (colour) => {
+    if (sent || typeof onChooseColour !== 'function') return;
+    if (onChooseColour(colour)) setSent(true);
+  };
+
   return (
     <Screen containerClassName="colours-container">
       <div className="colours-round-header">
@@ -102,7 +108,28 @@ const ColoursRoundScreen = ({ data, onBet }) => {
 
       {data?.error ? <div className="error-text">{data.error}</div> : null}
 
-      {data?.canBet ? (
+      {data?.canChooseColour ? (
+        <>
+          <div className="subtitle">
+            All bets are locked in. Choose the winning colour.
+          </div>
+          <div className="colour-choice-grid">
+            {colours.map((colour) => (
+              <button
+                key={colour}
+                type="button"
+                className={`colour-choice-button colour-bet--${colour}`}
+                disabled={sent}
+                onClick={() => chooseColour(colour)}
+              >
+                <span className="colour-swatch" aria-hidden="true" />
+                <strong>{COLOUR_LABELS[colour] || colour}</strong>
+              </button>
+            ))}
+          </div>
+          {sent ? <div className="setup-summary">Colour selected</div> : null}
+        </>
+      ) : data?.canBet ? (
         <>
           <div className="subtitle">
             Up to {formatCurrency(data.perColourMaxCents)} per colour and{' '}

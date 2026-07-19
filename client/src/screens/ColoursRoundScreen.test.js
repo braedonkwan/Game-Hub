@@ -52,4 +52,24 @@ describe('ColoursRoundScreen', () => {
     expect(screen.getByText(/You are the banker/)).toBeTruthy();
     expect(screen.queryByLabelText('Red bet')).toBeNull();
   });
+
+  test('lets the banker choose the winning colour after bets lock', () => {
+    const onChooseColour = jest.fn(() => true);
+    render(
+      <ColoursRoundScreen
+        data={{
+          ...payload,
+          phase: 'banker_choice',
+          canBet: false,
+          canChooseColour: true,
+          role: 'banker_choosing',
+        }}
+        onBet={jest.fn()}
+        onChooseColour={onChooseColour}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Purple' }));
+    expect(onChooseColour).toHaveBeenCalledWith('purple');
+    expect(screen.getByText('Colour selected')).toBeTruthy();
+  });
 });

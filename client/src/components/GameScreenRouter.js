@@ -82,7 +82,11 @@ const GameScreenRouter = ({
       );
     case GAME_STATES.SELECT_ANSWER:
       return isColoursRound ? (
-        <ColoursRoundScreen data={gameData} onBet={actions.sendColoursBet} />
+        <ColoursRoundScreen
+          data={gameData}
+          onBet={actions.sendColoursBet}
+          onChooseColour={actions.sendColoursChoice}
+        />
       ) : isTriviaQuestion ? (
         <TriviaQuestionScreen
           category={gameData.category}
@@ -103,7 +107,11 @@ const GameScreenRouter = ({
       );
     case GAME_STATES.WAITING:
       return isColoursRound ? (
-        <ColoursRoundScreen data={gameData} onBet={actions.sendColoursBet} />
+        <ColoursRoundScreen
+          data={gameData}
+          onBet={actions.sendColoursBet}
+          onChooseColour={actions.sendColoursChoice}
+        />
       ) : (
         <WaitingScreen
           message="Waiting for other players to guess..."

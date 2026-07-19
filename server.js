@@ -15,6 +15,7 @@ const {
 const { applyAnswerSubmission } = require('./server/answerSubmission');
 const {
     COLOUR_NAMES,
+    beginColoursBankerChoice,
     buildColoursSetupPayload,
     createColoursState,
     getColoursWinner,
@@ -24,6 +25,7 @@ const {
     prepareColoursRound,
     removeColoursPlayer,
     rotateColoursBanker,
+    selectColoursWinningColour,
     settleColoursRound,
     submitColoursBet,
     validateColoursSetup,
@@ -341,6 +343,11 @@ const getColoursRole = (client) => {
     const player = game.colours.players[key];
     if (!player) return 'spectator';
     if (player.eliminated || player.balanceCents <= 0) return 'eliminated';
+    if (game.colours.roundStage === 'banker_choice') {
+        return key === game.colours.bankerKey
+            ? 'banker_choosing'
+            : 'waiting_for_banker';
+    }
     if (key === game.colours.bankerKey) return 'banker';
     if (game.colours.bets[key]) return 'submitted';
     return 'bettor';
@@ -377,6 +384,8 @@ const buildColoursRoundPayload = (client, error) => {
         players: buildColoursPlayers(),
         role,
         canBet: role === 'bettor',
+        canChooseColour: role === 'banker_choosing',
+        phase: game.colours.roundStage,
         balanceCents: player?.balanceCents ?? null,
         perColourMaxCents: game.colours.perColourMaxCents,
         totalMaxCents: player
@@ -393,7 +402,11 @@ const buildColoursRoundPayload = (client, error) => {
 
 const sendColoursRoundState = (client, error) => {
     const payload = buildColoursRoundPayload(client, error);
-    updateClientState(client, payload.canBet ? SELECT_ANSWER : WAITING, payload);
+    updateClientState(
+        client,
+        payload.canBet || payload.canChooseColour ? SELECT_ANSWER : WAITING,
+        payload
+    );
 };
 
 const broadcastColoursRoundState = () => {
@@ -452,12 +465,33 @@ const startColoursRound = () => {
     game.phase = SELECT_ANSWER;
     broadcastColoursRoundState();
     roundTimeout = setTimeout(() => {
-        finalizeColoursRound();
+        finishColoursBettingPhase();
     }, game.colours.betDeadlineAt - Date.now());
 };
 
+function finishColoursBettingPhase() {
+    if (
+        game.activeGameId !== COLOURS_GAME_ID ||
+        game.phase !== SELECT_ANSWER ||
+        game.colours.roundStage !== 'betting'
+    ) {
+        return false;
+    }
+    clearRoundTimeout();
+    beginColoursBankerChoice(game.colours);
+    broadcastColoursRoundState();
+    roundTimeout = setTimeout(() => {
+        finalizeColoursRound();
+    }, game.colours.betDeadlineAt - Date.now());
+    return true;
+}
+
 function finalizeColoursRound() {
-    if (game.activeGameId !== COLOURS_GAME_ID || game.phase !== SELECT_ANSWER) {
+    if (
+        game.activeGameId !== COLOURS_GAME_ID ||
+        game.phase !== SELECT_ANSWER ||
+        game.colours.roundStage !== 'banker_choice'
+    ) {
         return false;
     }
     clearRoundTimeout();
@@ -569,8 +603,11 @@ const scheduleDisconnectedClientCleanup = (clientID, client) => {
                     game.colours.skipped = true;
                     game.colours.winningColour = null;
                     showColoursScoreboard();
-                } else if (haveAllEligiblePlayersBet(game.colours)) {
-                    finalizeColoursRound();
+                } else if (
+                    game.colours.roundStage === 'betting' &&
+                    haveAllEligiblePlayersBet(game.colours)
+                ) {
+                    finishColoursBettingPhase();
                 } else {
                     broadcastColoursRoundState();
                 }
@@ -926,8 +963,11 @@ async function handleSetUsername(client, text) {
     await syncClientState(client);
     if (game.phase === SELECT_ANSWER) {
         if (game.activeGameId === COLOURS_GAME_ID) {
-            if (haveAllEligiblePlayersBet(game.colours)) {
-                finalizeColoursRound();
+            if (
+                game.colours.roundStage === 'betting' &&
+                haveAllEligiblePlayersBet(game.colours)
+            ) {
+                finishColoursBettingPhase();
             }
         } else if (canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)) {
             finalizeCurrentRound();
@@ -1062,6 +1102,27 @@ function handleSelectAnswer(client, text) {
     if (game.activeGameId === COLOURS_GAME_ID) {
         const now = Date.now();
         if (isDeadlineExpired(game.colours.betDeadlineAt, now)) {
+            if (game.colours.roundStage === 'betting') {
+                finishColoursBettingPhase();
+            } else {
+                finalizeColoursRound();
+            }
+            return;
+        }
+        if (game.colours.roundStage === 'banker_choice') {
+            if (payload.type !== 'colours_choice') {
+                sendColoursRoundState(client, 'Choose one of the six colours.');
+                return;
+            }
+            const result = selectColoursWinningColour(
+                game.colours,
+                client.username,
+                payload.colour
+            );
+            if (!result.ok) {
+                sendColoursRoundState(client, result.error);
+                return;
+            }
             finalizeColoursRound();
             return;
         }
@@ -1076,7 +1137,7 @@ function handleSelectAnswer(client, text) {
         }
         broadcastColoursRoundState();
         if (haveAllEligiblePlayersBet(game.colours)) {
-            finalizeColoursRound();
+            finishColoursBettingPhase();
         }
         return;
     }
@@ -1260,8 +1321,11 @@ wss.on('connection', (ws, req) => {
         broadcastPlayers();
         if (game.phase === SELECT_ANSWER) {
             if (game.activeGameId === COLOURS_GAME_ID) {
-                if (haveAllEligiblePlayersBet(game.colours)) {
-                    finalizeColoursRound();
+                if (
+                    game.colours.roundStage === 'betting' &&
+                    haveAllEligiblePlayersBet(game.colours)
+                ) {
+                    finishColoursBettingPhase();
                 }
             } else if (canAdvancePastState(clients, SELECT_ANSWER, isActiveClient)) {
                 finalizeCurrentRound();

@@ -79,6 +79,7 @@ const createColoursState = (overrides = {}) => ({
     roundBankerUsername: '',
     bankerAdvancedForRemoval: false,
     round: 0,
+    roundStage: 'idle',
     eligibleKeys: [],
     bets: {},
     perColourMaxCents: 0,
@@ -151,6 +152,7 @@ const getColoursLimits = (state) => {
 const prepareColoursRound = (state, now = Date.now()) => {
     state.round += 1;
     state.bets = {};
+    state.roundStage = 'betting';
     state.roundBankerKey = state.bankerKey;
     state.roundBankerUsername = state.players[state.bankerKey]?.username || '';
     state.eligibleKeys = getEligiblePlayerKeys(state);
@@ -166,6 +168,25 @@ const prepareColoursRound = (state, now = Date.now()) => {
     );
     state.lastDeltas = Object.fromEntries(state.playerOrder.map((key) => [key, 0]));
     return state;
+};
+
+const beginColoursBankerChoice = (state, now = Date.now()) => {
+    state.roundStage = 'banker_choice';
+    state.roundStartedAt = now;
+    state.betDeadlineAt = now + state.betTimeoutMs;
+    return state;
+};
+
+const selectColoursWinningColour = (state, username, colour) => {
+    const key = playerKey(username);
+    if (state.roundStage !== 'banker_choice' || key !== state.bankerKey) {
+        return { ok: false, error: 'Only the banker can choose the colour.' };
+    }
+    if (!COLOUR_NAMES.includes(colour)) {
+        return { ok: false, error: 'Choose one of the six colours.' };
+    }
+    state.winningColour = colour;
+    return { ok: true, colour };
 };
 
 const normalizeBets = (bets) => {
@@ -207,11 +228,13 @@ const haveAllEligiblePlayersBet = (state) =>
 
 const settleColoursRound = (state, chooseIndex = randomIndex) => {
     if (state.skipped) return state;
-    const selectedIndex = chooseIndex(COLOUR_NAMES.length);
-    if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= COLOUR_NAMES.length) {
-        throw new Error('Unable to select a winning colour.');
+    if (!COLOUR_NAMES.includes(state.winningColour)) {
+        const selectedIndex = chooseIndex(COLOUR_NAMES.length);
+        if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= COLOUR_NAMES.length) {
+            throw new Error('Unable to select a winning colour.');
+        }
+        state.winningColour = COLOUR_NAMES[selectedIndex];
     }
-    state.winningColour = COLOUR_NAMES[selectedIndex];
     const banker = state.players[state.bankerKey];
     state.eligibleKeys.forEach((key) => {
         const player = state.players[key];
@@ -229,6 +252,7 @@ const settleColoursRound = (state, chooseIndex = randomIndex) => {
         player.eliminated = player.balanceCents === 0;
         state.lastDeltas[key] = player.balanceCents - (state.openingBalances[key] ?? player.balanceCents);
     });
+    state.roundStage = 'settled';
     return state;
 };
 
@@ -291,6 +315,7 @@ module.exports = {
     COLOURS_MIN_BET_SECONDS,
     COLOUR_NAMES,
     buildColoursSetupPayload,
+    beginColoursBankerChoice,
     createColoursState,
     formatCents,
     getActivePlayerKeys,
@@ -305,6 +330,7 @@ module.exports = {
     prepareColoursRound,
     removeColoursPlayer,
     rotateColoursBanker,
+    selectColoursWinningColour,
     settleColoursRound,
     submitColoursBet,
     validateColoursSetup,

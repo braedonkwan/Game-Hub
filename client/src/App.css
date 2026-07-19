@@ -1037,6 +1037,38 @@ select:focus {
     gap: 12px;
 }
 
+.colour-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.colour-choice-button {
+    display: flex;
+    min-height: 92px;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    font-size: 1rem;
+    box-shadow: 0 6px 0 rgba(32, 37, 50, 0.2);
+}
+
+.colour-choice-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    border-color: var(--colour-swatch);
+}
+
+.colour-choice-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
+}
+
 .colour-bet {
     display: grid;
     grid-template-columns: auto 1fr;
@@ -1382,6 +1414,10 @@ select:focus {
     }
 
     .colour-bet-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .colour-choice-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 

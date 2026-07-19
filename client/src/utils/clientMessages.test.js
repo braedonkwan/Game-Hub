@@ -8,6 +8,7 @@ import {
   buildStartGameMessage,
   buildTriviaAnswerMessage,
   buildColoursBetMessage,
+  buildColoursChoiceMessage,
   buildUsernameMessage,
 } from './clientMessages';
 
@@ -69,6 +70,10 @@ describe('client websocket messages', () => {
     ).toEqual({
       type: 'colours_bet',
       bets: { red: '1.00', blue: '0.50' },
+    });
+    expect(JSON.parse(buildColoursChoiceMessage('purple'))).toEqual({
+      type: 'colours_choice',
+      colour: 'purple',
     });
     expect(READY_MESSAGE).toBe('ready');
     expect(PLAY_AGAIN_MESSAGE).toBe('play again');

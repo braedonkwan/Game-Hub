@@ -40,3 +40,6 @@ export const buildGuessMessage = (selection) => JSON.stringify(selection);
 
 export const buildColoursBetMessage = (bets) =>
   JSON.stringify({ type: 'colours_bet', bets });
+
+export const buildColoursChoiceMessage = (colour) =>
+  JSON.stringify({ type: 'colours_choice', colour });

@@ -115,7 +115,9 @@ export const deriveStateFromPayload = (payload) => {
     return GAME_STATES.SELECT_ANSWER;
   }
   if (isColoursRoundPayload(payload)) {
-    return payload.canBet ? GAME_STATES.SELECT_ANSWER : GAME_STATES.WAITING;
+    return payload.canBet || payload.canChooseColour
+      ? GAME_STATES.SELECT_ANSWER
+      : GAME_STATES.WAITING;
   }
   if (isScoreboardPayload(payload)) return GAME_STATES.SCOREBOARD;
   return null;

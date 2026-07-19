@@ -9,6 +9,7 @@ const actions = {
   sendGuess: jest.fn(() => true),
   sendTriviaAnswer: jest.fn(() => true),
   sendColoursBet: jest.fn(() => true),
+  sendColoursChoice: jest.fn(() => true),
   sendReady: jest.fn(() => true),
   playAgain: jest.fn(() => true),
   setupGame: jest.fn(() => true),
